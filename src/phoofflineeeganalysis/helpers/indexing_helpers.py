@@ -32,7 +32,7 @@ def safe_get_if_not_None(a_list: Optional[List], index: int, fallback_value: Any
         
     Usage:
         from pyphocorehelpers.indexing_helpers import safe_get_if_not_None
-    
+            from phoofflineeeganalysis.helpers.indexing_helpers import safe_get_if_not_None
     """
     try:
         if a_list is None:

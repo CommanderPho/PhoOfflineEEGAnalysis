@@ -23,7 +23,7 @@ timestamp_dt_column_names = ['created_at_dt', 'first_timestamp_dt', 'last_timest
 # from dose_analysis_python.FileImportExport.NoteImporter import NightBingeStatus
 @define(slots=False)
 class CalendarDatasource:
-    """ from PhoLabStreamingReceiver.UI.CustomCalendarWidget import CalendarDatasource
+    """ from phoofflineeeganalysis.UI.CustomCalendarWidget import CalendarDatasource
     """
     xdf_stream_infos_df: pd.DataFrame = field()
     eeg_only_stream_infos_df: pd.DataFrame = field(init=False)

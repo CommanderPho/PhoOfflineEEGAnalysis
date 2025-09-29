@@ -36,7 +36,7 @@ set_log_level("WARNING")
 class EEGData:
     """ Methods related to processing of motion (gyro/accel/magnet/quaternion/etc) data
 
-    from PhoLabStreamingReceiver.analysis.EEG_data import EEGData
+    from phoofflineeeganalysis.analysis.EEG_data import EEGData
 
     (all_data_MOTION, all_times_MOTION), datasets_MOTION, df_MOTION = flat_data_modality_dict['MOTION']  ## Unpacking
     df_MOTION
@@ -81,7 +81,7 @@ class EEGData:
 
         """
         from mne.channels.montage import DigMontage
-        from PhoLabStreamingReceiver.analysis.anatomy_and_electrodes import ElectrodeHelper
+        from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelper
 
         active_electrode_man: ElectrodeHelper = ElectrodeHelper.init_EpocX_montage()
         emotiv_epocX_montage: DigMontage = active_electrode_man.active_montage
@@ -109,7 +109,7 @@ class EEGData:
         
         """
         from mne.channels.montage import DigMontage
-        from PhoLabStreamingReceiver.analysis.anatomy_and_electrodes import ElectrodeHelper
+        from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelper
 
         active_electrode_man: ElectrodeHelper = ElectrodeHelper.init_EpocX_montage()
         emotiv_epocX_montage: DigMontage = active_electrode_man.active_montage
@@ -177,7 +177,7 @@ class EEGData:
 class EEGComputations:
     """ 
     
-    from PhoLabStreamingReceiver.analysis.EEG_data import EEGComputations, EEGData
+    from phoofflineeeganalysis.analysis.EEG_data import EEGComputations, EEGData
     
         
         
@@ -382,7 +382,7 @@ class EEGComputations:
         """ 
         EEGComputations.to_hdf(a_result=a_raw_outputs, file_path=hdf5_out_path, root_key=f"/{basename}/")
 
-        from PhoLabStreamingReceiver.analysis.EEG_data import EEGComputations
+        from phoofflineeeganalysis.analysis.EEG_data import EEGComputations
 
         # EEGComputations.to_hdf(a_result=results[0], file_path="")
         hdf5_out_path: Path = Path('E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/outputs').joinpath('2025-09-23_eegComputations.h5').resolve()

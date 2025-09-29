@@ -20,14 +20,14 @@ import mne
 from mne.io import read_raw
 import pyedflib
 
-from PhoLabStreamingReceiver.analysis.motion_data import MotionData ## for creating single EDF+ files containing channel with different sampling rates (e.g. EEG and MOTION data)
+from phoofflineeeganalysis.analysis.motion_data import MotionData ## for creating single EDF+ files containing channel with different sampling rates (e.g. EEG and MOTION data)
 
 mne.viz.set_browser_backend("Matplotlib")
 
 from mne_lsl.player import PlayerLSL as Player
 from mne_lsl.stream import StreamLSL as Stream
 
-from PhoLabStreamingReceiver.EegProcessing import bandpower
+# from phoofflineeeganalysis.EegProcessing import bandpower
 # from ..EegProcessing import bandpower
 from numpy.typing import NDArray
 
@@ -38,7 +38,7 @@ set_log_level("WARNING")
 class MNEHelpers:
     """ General MNE helper Methods
     Usage:
-            from PhoLabStreamingReceiver.analysis.MNE_helpers import MNEHelpers
+            from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
             
     """
     @classmethod
@@ -177,7 +177,7 @@ class MNEHelpers:
         """ Convert 'start_time' and 'end_time' columns to datetime
 
         Usage:
-            from PhoLabStreamingReceiver.analysis.MNE_helpers import MNEHelpers
+            from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
             
             dataset_moving_annotations: mne.Annotations = MNEHelpers.convert_df_with_boolean_col_to_epochs(a_motion_df, is_bad_col_name="is_moving", annotation_description_name="BAD_motion")
             dataset_moving_annotations
@@ -385,7 +385,7 @@ class DatasetRawExportToConvertedFormatFileMixin:
         Attempts to preserve as much metadata as possible, including channel info and compatible annotations.
 
         Usage:
-            from PhoLabStreamingReceiver.analysis.EEG_data import EEGData
+            from phoofflineeeganalysis.analysis.EEG_data import EEGData
 
             ## INPUTS: raw_eeg
             edf_export_parent_path: Path = Path(r"E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/exported_EDF").resolve()

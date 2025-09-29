@@ -19,7 +19,7 @@ from mne import set_log_level
 from copy import deepcopy
 import mne
 from mne.channels import make_dig_montage
-import nibabel as nib
+# import nibabel as nib
 from scipy.spatial.distance import cdist
 from sklearn.neighbors import NearestNeighbors
 
@@ -34,7 +34,7 @@ from numpy.typing import NDArray
 
 # ElectrodeHelper module
 from pathlib import Path
-import trimesh
+# import trimesh
 
 set_log_level("WARNING")
 
@@ -46,7 +46,7 @@ class ElectrodeHelper:
     
     
     Basic Electrode Positions Loading:
-        from PhoLabStreamingReceiver.analysis.anatomy_and_electrodes import ElectrodeHelper
+        from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelper
 
         # Just create montage from your electrode positions
         # electrode_positions_path = Path(r"E:/Dropbox (Personal)/Hardware/Consumer EEG Headsets/Emotiv Epoc EEG/ElectrodeLayouts/emotiv_wellAlignedPho.ced").resolve()
@@ -58,7 +58,7 @@ class ElectrodeHelper:
     Stateful Electrode Positions Loading:
     
         from mne.channels.montage import DigMontage
-        from PhoLabStreamingReceiver.analysis.anatomy_and_electrodes import ElectrodeHelper
+        from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelper
 
         active_electrode_man: ElectrodeHelper = ElectrodeHelper.init_EpocX_montage()
         emotiv_epocX_montage: DigMontage = active_electrode_man.active_montage
@@ -97,7 +97,7 @@ class ElectrodeHelper:
             
         Usage:
             from mne.channels.montage import DigMontage
-            from PhoLabStreamingReceiver.analysis.anatomy_and_electrodes import ElectrodeHelper
+            from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelper
 
             electrode_pos_parent_folder = Path("E:/Dropbox (Personal)/Hardware/Consumer EEG Headsets/Emotiv Epoc EEG/ElectrodeLayouts").resolve()
             electrode_positions_path = electrode_pos_parent_folder.joinpath('ElectrodePositions_2025-08-14', 'brainstorm_electrode_positions_PhoHAle_eeg_subjectspacemm.tsv')

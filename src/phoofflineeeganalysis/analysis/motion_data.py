@@ -30,7 +30,7 @@ set_log_level("WARNING")
 
 class MotionData:
     """ Methods related to processing of motion (gyro/accel/magnet/quaternion/etc) data
-    from PhoLabStreamingReceiver.analysis.motion_data import MotionData
+    from phoofflineeeganalysis.analysis.motion_data import MotionData
     
     (all_data_MOTION, all_times_MOTION), datasets_MOTION, df_MOTION = flat_data_modality_dict['MOTION']  ## Unpacking
 
@@ -58,7 +58,7 @@ class MotionData:
     def find_high_accel_periods(cls, a_ds: mne.io.Raw, total_accel_threshold: float = 0.5, should_set_bad_period_annotations: bool=True) -> mne.Annotations:
         """ finds periods of high acceleration in the dataset and returns annotations for those periods.
         """
-        from PhoLabStreamingReceiver.analysis.MNE_helpers import MNEHelpers
+        from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
 
         meas_date = deepcopy(a_ds.info['meas_date'])
         # a_ds = motion_datasets[-1]
@@ -84,7 +84,7 @@ class MotionData:
         """ 
 
         # a_df: pd.DataFrame = self.o.data.copy()
-        from PhoLabStreamingReceiver.analysis.motion_data import MotionData
+        from phoofflineeeganalysis.analysis.motion_data import MotionData
 
         a_motion_ds = motion_datasets[-1]
         a_motion_df: pd.DataFrame = MotionData.compute_rolling_motion_change_detection(a_df=a_motion_ds.to_data_frame())
@@ -189,7 +189,7 @@ class MotionData:
 
         """
         from mne.channels.montage import DigMontage
-        from PhoLabStreamingReceiver.analysis.anatomy_and_electrodes import ElectrodeHelper
+        from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelper
 
         ## BEGIN ANALYSIS of EEG Data
         num_MOTION_files: int = len(datasets_MOTION)

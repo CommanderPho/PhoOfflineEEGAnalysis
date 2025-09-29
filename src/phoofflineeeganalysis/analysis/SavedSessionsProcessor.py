@@ -30,19 +30,19 @@ from attrs import define, field, Factory
 from mne_lsl.player import PlayerLSL as Player
 from mne_lsl.stream import StreamLSL as Stream
 
-from PhoLabStreamingReceiver.EegProcessing import bandpower
-from PhoLabStreamingReceiver.analysis.MNE_helpers import MNEHelpers, up_convert_raw_objects
-from PhoLabStreamingReceiver.analysis.historical_data import HistoricalData
-from PhoLabStreamingReceiver.analysis.motion_data import MotionData
-from PhoLabStreamingReceiver.analysis.EEG_data import EEGData
-from PhoLabStreamingReceiver.analysis.anatomy_and_electrodes import ElectrodeHelper
+from phoofflineeeganalysis.EegProcessing import bandpower
+from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers, up_convert_raw_objects
+from phoofflineeeganalysis.analysis.historical_data import HistoricalData
+from phoofflineeeganalysis.analysis.motion_data import MotionData
+from phoofflineeeganalysis.analysis.EEG_data import EEGData
+from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelper
 # from ..EegProcessing import bandpower
 
-from PhoLabStreamingReceiver.EegProcessing import analyze_eeg_trends
-from PhoLabStreamingReceiver.analysis.EEG_data import EEGData
-from PhoLabStreamingReceiver.analysis.motion_data import MotionData
-from PhoLabStreamingReceiver.analysis.event_data import EventData
-from PhoLabStreamingReceiver.analysis.historical_data import HistoricalData
+from phoofflineeeganalysis.EegProcessing import analyze_eeg_trends
+from phoofflineeeganalysis.analysis.EEG_data import EEGData
+from phoofflineeeganalysis.analysis.motion_data import MotionData
+from phoofflineeeganalysis.analysis.event_data import EventData
+from phoofflineeeganalysis.analysis.historical_data import HistoricalData
 
 set_log_level("WARNING")
 
@@ -126,7 +126,7 @@ class SavedSessionsProcessor:
     """ Top-level manager of EEG recordings
     
 
-    from PhoLabStreamingReceiver.analysis.SavedSessionsProcessor import SavedSessionsProcessor, SessionModality, DataModalityType
+    from phoofflineeeganalysis.analysis.SavedSessionsProcessor import SavedSessionsProcessor, SessionModality, DataModalityType
      
     sso: SavedSessionsProcessor = SavedSessionsProcessor()
     sso
@@ -425,8 +425,8 @@ class SavedSessionsProcessor:
         written_EDF_file_paths = sso.save_to_EDF()
         
         """
-        from PhoLabStreamingReceiver.analysis.MNE_helpers import up_convert_raw_objects
-        from PhoLabStreamingReceiver.analysis.EEG_data import EEGData
+        from phoofflineeeganalysis.analysis.MNE_helpers import up_convert_raw_objects
+        from phoofflineeeganalysis.analysis.EEG_data import EEGData
 
 
         edf_export_parent_path.mkdir(exist_ok=True)
@@ -459,7 +459,7 @@ class SavedSessionsProcessor:
 class EntireDayMergedData:
     """ Manages data merged for an entire day
     
-    from PhoLabStreamingReceiver.analysis.SavedSessionsProcessor import EntireDayMergedData
+    from phoofflineeeganalysis.analysis.SavedSessionsProcessor import EntireDayMergedData
     
     """
     datasets: List[mne.io.Raw] = field(default=None)
@@ -541,7 +541,7 @@ class EntireDayMergedData:
         Returns:
             mne.io.Raw: Merged Raw dataset for the specified date.
         """
-        from PhoLabStreamingReceiver.analysis.MNE_helpers import up_convert_raw_objects, up_convert_raw_obj
+        from phoofflineeeganalysis.analysis.MNE_helpers import up_convert_raw_objects, up_convert_raw_obj
 
         if "EEG" not in sso.modalities:
             raise ValueError("The SavedSessionsProcessor does not contain any EEG modality data.")
@@ -621,7 +621,7 @@ def unwrap_single_element_listlike_if_needed(a_list):
 class XDFDataStreamAccessor(object):
     """ A Pandas pd.DataFrame representation of [start, stop, label] epoch intervals 
     
-    from PhoLabStreamingReceiver.analysis.SavedSessionsProcessor import XDFDataStreamAccessor
+    from phoofflineeeganalysis.analysis.SavedSessionsProcessor import XDFDataStreamAccessor
         
     xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=active_only_out_eeg_raws)
     
@@ -784,7 +784,7 @@ class XDFDataStreamAccessor(object):
 class LabRecorderXDF:
     """ 
     
-    from PhoLabStreamingReceiver.analysis.SavedSessionsProcessor import LabRecorderXDF, unwrap_single_element_listlike_if_needed
+    from phoofflineeeganalysis.analysis.SavedSessionsProcessor import LabRecorderXDF, unwrap_single_element_listlike_if_needed
     
     """
     lab_recorder_to_mne_to_type_dict = {'EEG':'eeg', 'ACC':'eeg', 'GYRO':'eeg', 'RAW': 'eeg'} # 'RAW' for eeg quality
@@ -794,8 +794,8 @@ class LabRecorderXDF:
     
     @classmethod
     def init_from_lab_recorder_xdf_file(cls, a_xdf_file: Path):
-        from PhoLabStreamingReceiver.analysis.MNE_helpers import MNEHelpers
-        from PhoLabStreamingReceiver.analysis.motion_data import MotionData
+        from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
+        from phoofflineeeganalysis.analysis.motion_data import MotionData
 
         # Load .xdf
         streams, header = pyxdf.load_xdf(a_xdf_file)
@@ -999,8 +999,8 @@ class LabRecorderXDF:
 
         """ main load function for all XDF files exported by LabRecorder
         """
-        from PhoLabStreamingReceiver.analysis.MNE_helpers import DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, RawExtended, up_convert_raw_objects, up_convert_raw_obj
-        from PhoLabStreamingReceiver.analysis.EEG_data import EEGData
+        from phoofflineeeganalysis.analysis.MNE_helpers import DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, RawExtended, up_convert_raw_objects, up_convert_raw_obj
+        from phoofflineeeganalysis.analysis.EEG_data import EEGData
                                        
         assert lab_recorder_output_path.exists()
 

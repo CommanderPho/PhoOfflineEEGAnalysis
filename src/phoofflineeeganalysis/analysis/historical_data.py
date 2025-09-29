@@ -20,15 +20,15 @@ import mne
 from mne.io import read_raw
 import pyedflib
 
-from PhoLabStreamingReceiver.analysis.motion_data import MotionData ## for creating single EDF+ files containing channel with different sampling rates (e.g. EEG and MOTION data)
+from phoofflineeeganalysis.analysis.motion_data import MotionData ## for creating single EDF+ files containing channel with different sampling rates (e.g. EEG and MOTION data)
 
 mne.viz.set_browser_backend("Matplotlib")
 
 from mne_lsl.player import PlayerLSL as Player
 from mne_lsl.stream import StreamLSL as Stream
 
-from PhoLabStreamingReceiver.EegProcessing import bandpower
-from PhoLabStreamingReceiver.analysis.MNE_helpers import MNEHelpers
+# from phoofflineeeganalysis.EegProcessing import bandpower
+from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
 # from ..EegProcessing import bandpower
 from numpy.typing import NDArray
 # from nptyping import NDArray
@@ -40,7 +40,7 @@ import os, sys
 # os.environ["PYTHONPATH"] = "C:/Users/pho/repos/EmotivEpoc/emotiv-lsl:" + os.environ.get("PYTHONPATH", "")
 sys.path.append("C:/Users/pho/repos/EmotivEpoc/emotiv-lsl")
 
-from PhoLabStreamingReceiver.helpers.indexing_helpers import reorder_columns_relative
+from phoofflineeeganalysis.helpers.indexing_helpers import reorder_columns_relative
 from emotiv_lsl.emotiv_epoc_x import EmotivBase, EmotivEpocX
 
 
@@ -52,7 +52,7 @@ class GenericRawDebugFileProcessor:
 
     CAPTURES: emotiv_epoc_x
 
-    from PhoLabStreamingReceiver.analysis.historical_data import GenericRawDebugFileProcessor
+    from phoofflineeeganalysis.analysis.historical_data import GenericRawDebugFileProcessor
 
     """
     # line_length_to_modality_dict = {65: 'MOTION', 85: 'EEG'}
@@ -348,7 +348,7 @@ class FlutterExportedData:
 class HistoricalData:
     """ Methods related to retrospective processing of recorded data
         
-    from PhoLabStreamingReceiver.analysis.historical_data import HistoricalData
+    from phoofflineeeganalysis.analysis.historical_data import HistoricalData
         
     """
     modality_channels_dict = {'EEG': ['AF3', 'F7', 'F3', 'FC5', 'T7', 'P7', 'O1', 'O2', 'P8', 'T8', 'FC6', 'F4', 'F8', 'AF4'],
@@ -569,7 +569,7 @@ class HistoricalData:
             HistoricalData.read_exported_fif_files(found_recording_files=found_recording_files)
 
         """
-        from PhoLabStreamingReceiver.analysis.MNE_helpers import DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, RawExtended, up_convert_raw_objects, up_convert_raw_obj
+        from phoofflineeeganalysis.analysis.MNE_helpers import DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, RawExtended, up_convert_raw_objects, up_convert_raw_obj
         
         # import csv
         
@@ -829,9 +829,9 @@ class HistoricalData:
         ):
         """ Find periods that overlap the motion data
         
-        from PhoLabStreamingReceiver.analysis.EEG_data import EEGData
-        from PhoLabStreamingReceiver.analysis.motion_data import MotionData
-        from PhoLabStreamingReceiver.analysis.historical_data import HistoricalData
+        from phoofflineeeganalysis.analysis.EEG_data import EEGData
+        from phoofflineeeganalysis.analysis.motion_data import MotionData
+        from phoofflineeeganalysis.analysis.historical_data import HistoricalData
         
         n_most_recent_sessions_to_preprocess: int = 10
         
@@ -936,9 +936,9 @@ class HistoricalData:
         ):
         """ Find periods that overlap the motion data
 
-        from PhoLabStreamingReceiver.analysis.EEG_data import EEGData
-        from PhoLabStreamingReceiver.analysis.motion_data import MotionData
-        from PhoLabStreamingReceiver.analysis.historical_data import HistoricalData
+        from phoofflineeeganalysis.analysis.EEG_data import EEGData
+        from phoofflineeeganalysis.analysis.motion_data import MotionData
+        from phoofflineeeganalysis.analysis.historical_data import HistoricalData
 
         n_most_recent_sessions_to_preprocess: int = 10
 
