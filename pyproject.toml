@@ -1,12 +1,12 @@
 [project]
 name = "phoofflineeeganalysis"
-version = "0.1.0"
+version = "0.1.1"
 description = "Add your description here"
 readme = "README.md"
 authors = [
     { name = "Pho Hale", email = "PhoHale@gmail.com" }
 ]
-requires-python = ">=3.9,<3.12"
+requires-python = ">=3.9,<3.13"
 dependencies = [
     "ipykernel>=6.30.1",
     "scipy>=1.13.1",
@@ -25,7 +25,6 @@ dependencies = [
     "nptyping>=2.5.0",
     "pandas>=1.5.3,<3.0.0",
     "pyinstaller>=6.14.2",
-    "pyphoplacecellanalysis",
     "autoreject>=0.4.3",
     "pylsl>=1.16.2",
     "mne-lsl>=1.6.1",
@@ -55,6 +54,3 @@ phoofflineeeganalysis = "phoofflineeeganalysis:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
-
-[tool.uv.sources]
-pyphoplacecellanalysis = { path = "../pyPhoPlaceCellAnalysis", editable = true }
