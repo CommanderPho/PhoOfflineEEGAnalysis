@@ -1,0 +1,22 @@
+[project]
+name = "phoofflineeeganalysis"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Pho Hale", email = "PhoHale@gmail.com" }
+]
+requires-python = ">=3.9,<3.12"
+dependencies = [
+    "pyphoplacecellanalysis",
+]
+
+[project.scripts]
+phoofflineeeganalysis = "phoofflineeeganalysis:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+pyphoplacecellanalysis = { path = "../pyPhoPlaceCellAnalysis", editable = true }
