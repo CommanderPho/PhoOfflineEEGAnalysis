@@ -35,6 +35,8 @@ from numpy.typing import NDArray
 # ElectrodeHelper module
 from pathlib import Path
 # import trimesh
+import importlib.resources as resources
+
 
 set_log_level("WARNING")
 
@@ -77,8 +79,15 @@ class ElectrodeHelper:
     @classmethod
     def init_EpocX_montage(cls, electrode_positions_path: Optional[Path] = None) -> "ElectrodeHelper":
         if electrode_positions_path is None:
-            electrode_pos_parent_folder: Path = Path("E:/Dropbox (Personal)/Hardware/Consumer EEG Headsets/Emotiv Epoc EEG/ElectrodeLayouts").resolve()
-            electrode_positions_path = electrode_pos_parent_folder.joinpath('ElectrodePositions_2025-08-14', 'brainstorm_electrode_positions_PhoHAle_eeg_subjectspacemm.tsv')
+            # electrode_pos_parent_folder: Path = Path("E:/Dropbox (Personal)/Hardware/Consumer EEG Headsets/Emotiv Epoc EEG/ElectrodeLayouts").resolve()
+            # electrode_positions_path = electrode_pos_parent_folder.joinpath('ElectrodePositions_2025-08-14', 'brainstorm_electrode_positions_PhoHAle_eeg_subjectspacemm.tsv')
+
+            # electrode_pos_parent_folder: Path = Path("E:/Dropbox (Personal)/Hardware/Consumer EEG Headsets/Emotiv Epoc EEG/ElectrodeLayouts").resolve()
+            # electrode_positions_path = electrode_pos_parent_folder.joinpath('phoofflineeeganalysis/resources/ElectrodeLayouts/brainstorm_electrode_positions_PhoHAle_eeg_subjectspacemm.tsv')
+
+            electrode_positions_path = Path(resources.files("phoofflineeeganalysis").joinpath("resources/ElectrodeLayouts/brainstorm_electrode_positions_PhoHAle_eeg_subjectspacemm.tsv")).resolve()
+
+
         assert electrode_positions_path.exists(), f"electrode_positions_path: '{electrode_positions_path}' does not exist!"
         
         emotiv_epocX_montage: DigMontage = ElectrodeHelper.montage_from_subjece_space_mm_tsv(electrode_positions_path=electrode_positions_path)
