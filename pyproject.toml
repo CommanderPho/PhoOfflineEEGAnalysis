@@ -46,6 +46,7 @@ dependencies = [
     "python-benedict>=0.28.3,<0.29",
     "mnelab>=0.8.6",
     "h5netcdf>=1.6.4",
+    "tables>=3.9.2",
 ]
 
 [project.scripts]

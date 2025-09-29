@@ -5737,6 +5737,9 @@ dependencies = [
     { name = "scipy", version = "1.13.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "setuptools" },
+    { name = "tables", version = "3.9.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "tables", version = "3.10.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "tables", version = "3.10.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "wheel" },
     { name = "xarray", extra = ["complete"] },
 ]
@@ -5779,6 +5782,7 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.6.1" },
     { name = "scipy", specifier = ">=1.13.1" },
     { name = "setuptools", specifier = ">=80.4.0" },
+    { name = "tables", specifier = ">=3.9.2" },
     { name = "wheel", specifier = ">=0.45.1" },
     { name = "xarray", extras = ["complete"], specifier = ">=2024.3.0" },
 ]
