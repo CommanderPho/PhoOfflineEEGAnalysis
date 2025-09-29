@@ -1069,10 +1069,104 @@ class LabRecorderXDF:
         EEGData.set_montage(datasets_EEG=_out_eeg_raw)
         
 
-        _out_xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=_out_eeg_raw) # [_out_xdf_stream_infos_df['name'] == 'Epoc X']
+        # _out_xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=_out_eeg_raw) # [_out_xdf_stream_infos_df['name'] == 'Epoc X']
         
         
         return _out_eeg_raw, _out_xdf_stream_infos_df, lab_recorder_xdf_files
 
+
+
+    @classmethod
+    def to_hdf(cls, active_only_out_eeg_raws, results, xdf_stream_infos_df: pd.DataFrame, file_path: Path, root_key: str='/', debug_print=True):
+        """ 
+        from phoofflineeeganalysis.PendingNotebookCode import batch_compute_all_eeg_datasets
+                
+        LabRecorderXDF.to_hdf(a_result=a_raw_outputs, file_path=hdf5_out_path, root_key=f"/{basename}/")
+
+        from phoofflineeeganalysis.analysis.EEG_data import EEGComputations
+
+        active_only_out_eeg_raws, results = batch_compute_all_eeg_datasets(eeg_raws=_out_eeg_raw, limit_num_items=150, max_workers = 4)
+                
+        # EEGComputations.to_hdf(a_result=results[0], file_path="")
+        hdf5_out_path: Path = Path('E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/outputs').joinpath('2025-09-23_eegComputations.h5').resolve()
+        hdf5_out_path
+
+        for idx, (a_raw, a_raw_outputs) in enumerate(zip(active_only_out_eeg_raws, results)):
+            # a_path: Path = Path(a_raw.filenames[0])
+            # basename: str = a_path.stem
+            # basename: str = a_raw.info.get('meas_date')
+            src_file_path: Path = Path(a_raw.info.get('description')).resolve()
+            basename: str = src_file_path.stem
+
+            print(f'basename: {basename}')
+            EEGComputations.to_hdf(a_result=a_raw_outputs, file_path=hdf5_out_path, root_key=f"/{basename}/")
+
+            # EEGComputations.to_hdf(a_result=results[0], file_path="", root_key=f"/{basename}/")
+
+            # for an_output_key, an_output_dict in a_raw_outputs.items():
+            #     for an_output_subkey, an_output_value in an_output_dict.items():
+            #         final_data_key: str = '/'.join([basename, an_output_key, an_output_subkey])
+            #         print(f'\tfinal_data_key: "{final_data_key}"')
+            #         # all_WHISPER_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/WHISPER/df', append=True)
+
+            # spectogram_result_dict = a_raw_outputs['spectogram']['spectogram_result_dict']
+            # fs = a_raw_outputs['spectogram']['fs']
+
+            # for ch_idx, (a_ch, a_ch_spect_result_tuple) in enumerate(spectogram_result_dict.items()):
+            #     all_WHISPER_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/WHISPER/df', append=True)
+            #     all_pho_log_to_lsl_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/PHO_LOG_TO_LSL/df', append=True)
+
+            #     all_pho_log_to_lsl_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/PHO_LOG_TO_LSL/df', append=True)
+
+
+        # E:\Dropbox (Personal)\Databases\AnalysisData\MNE_preprocessed\outputs\
+
+
+        """
+        import h5py
+        from phoofflineeeganalysis.analysis.EEG_data import EEGComputations, EEGData
+        from phoofflineeeganalysis.analysis.SavedSessionsProcessor import XDFDataStreamAccessor
+
+        write_mode = 'a'
+        if (not file_path.exists()):
+            write_mode = 'w'
+
+        num_sessions: int = len(active_only_out_eeg_raws)
+        xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=xdf_stream_infos_df, active_only_out_eeg_raws=active_only_out_eeg_raws)
+        # xdf_stream_infos_df.to_hdf(file_path, key='/xdf_stream_infos_df', append=True) ## append=False to overwrite existing
+        xdf_stream_infos_df.to_hdf(file_path, key='/xdf_stream_infos_df', append=True)
+
+        flat_annotations = []
+
+        for an_xdf_dataset_idx in np.arange(num_sessions):
+            a_raw = active_only_out_eeg_raws[an_xdf_dataset_idx]
+            a_meas_date = a_raw.info.get('meas_date')
+            a_raw_key: str = a_meas_date.strftime("%Y-%m-%d/%H-%M-%S") # '2025-09-22/21-35-47'
+
+            a_result = results[an_xdf_dataset_idx]
+            with h5py.File(file_path, 'a') as f:
+                EEGComputations.perform_write_to_hdf(a_result=a_result, f=f, root_key=f'/result/{a_raw_key}')
+
+            # a_stream_info = deepcopy(xdf_stream_infos_df).loc[an_xdf_dataset_idx]    
+            # print(f'i: {i}, a_meas_date: {a_meas_date}, a_stream_info: {a_stream_info}\n\n')
+            # print(f'i: {an_xdf_dataset_idx}, a_meas_date: {a_meas_date}')
+            # a_raw.to_data_frame(time_format='datetime').to_hdf(file_path, key=f'/raw/{a_raw_key}/df', append=True)
+            a_raw.to_data_frame(time_format='datetime').to_hdf(file_path, key=f'/raw/{a_raw_key}', append=True)
+            # EEGComputations.to_hdf(a_result=a_result, file_path=file_path, root_key=f'/result/{a_raw_key}')
+            a_df = a_raw.annotations.to_data_frame(time_format='datetime')
+            a_df = a_df[a_df['description'] != 'BAD_motion']
+            # a_df['xdf_dataset_idx'] = an_xdf_dataset_idx
+            flat_annotations.append(a_df)
+                
+
+        flat_annotations = pd.concat(flat_annotations, ignore_index=True)
+        flat_annotations['onset_str'] = flat_annotations['onset'].dt.strftime("%Y-%m-%d_%I:%M:%S.%f %p")
+
+        if flat_annotations is not None:
+            flat_annotations.to_hdf(file_path, key='/flat_annotations_df', append=True)
+
+
+        return file_path
+    
 
 

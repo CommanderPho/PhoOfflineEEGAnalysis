@@ -377,6 +377,85 @@ class EEGComputations:
                                         )
     
 
+
+
+    @classmethod
+    def perform_write_to_hdf(cls, a_result, f, root_key: str='/', debug_print=True):
+        """ 
+        EEGComputations.to_hdf(a_result=a_raw_outputs, file_path=hdf5_out_path, root_key=f"/{basename}/")
+
+        from phoofflineeeganalysis.analysis.EEG_data import EEGComputations
+
+        # EEGComputations.to_hdf(a_result=results[0], file_path="")
+        hdf5_out_path: Path = Path('E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/outputs').joinpath('2025-09-23_eegComputations.h5').resolve()
+        hdf5_out_path
+
+        for idx, (a_raw, a_raw_outputs) in enumerate(zip(active_only_out_eeg_raws, results)):
+            # a_path: Path = Path(a_raw.filenames[0])
+            # basename: str = a_path.stem
+            # basename: str = a_raw.info.get('meas_date')
+            src_file_path: Path = Path(a_raw.info.get('description')).resolve()
+            basename: str = src_file_path.stem
+
+            print(f'basename: {basename}')
+            EEGComputations.to_hdf(a_result=a_raw_outputs, file_path=hdf5_out_path, root_key=f"/{basename}/")
+
+            # EEGComputations.to_hdf(a_result=results[0], file_path="", root_key=f"/{basename}/")
+
+            # for an_output_key, an_output_dict in a_raw_outputs.items():
+            #     for an_output_subkey, an_output_value in an_output_dict.items():
+            #         final_data_key: str = '/'.join([basename, an_output_key, an_output_subkey])
+            #         print(f'\tfinal_data_key: "{final_data_key}"')
+            #         # all_WHISPER_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/WHISPER/df', append=True)
+
+            # spectogram_result_dict = a_raw_outputs['spectogram']['spectogram_result_dict']
+            # fs = a_raw_outputs['spectogram']['fs']
+
+            # for ch_idx, (a_ch, a_ch_spect_result_tuple) in enumerate(spectogram_result_dict.items()):
+            #     all_WHISPER_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/WHISPER/df', append=True)
+            #     all_pho_log_to_lsl_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/PHO_LOG_TO_LSL/df', append=True)
+
+            #     all_pho_log_to_lsl_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/PHO_LOG_TO_LSL/df', append=True)
+
+
+        # E:\Dropbox (Personal)\Databases\AnalysisData\MNE_preprocessed\outputs\
+
+
+        """
+        def _perform_write_dict_recurrsively(attribute, a_value):
+            if debug_print:
+                print(f'attribute: {attribute}')
+            if isinstance(a_value, pd.DataFrame):
+                a_value.to_hdf(f, key=attribute, append=True)
+            elif isinstance(a_value, (xr.DataArray, xr.Dataset)):
+                # xr.open_dataset("/path/to/my/file.h5", group="/my/group")
+                # f.create_dataset(attribute, data=a_value.values)
+                f.create_dataset(attribute, data=a_value)
+                # xr.open_dataset("/path/to/my/file.h5", group="/my/group")
+            elif isinstance(a_value, np.ndarray):
+                f.create_dataset(attribute, data=a_value)
+            elif isinstance(a_value, (str, float, int)):
+                # f.attrs.create(
+                print(f'cannot yet write attributes. Skipping "{attribute}" of type {type(a_value)}')
+            elif isinstance(a_value, dict):
+                for a_sub_attribute, a_sub_value in a_value.items():
+                    ## process each subattribute independently
+                    _perform_write_dict_recurrsively(f"{attribute}/{a_sub_attribute}", a_sub_value)
+
+            elif (Path(attribute).parts[-2] == 'spectogram_result_dict') and isinstance(a_value, tuple) and len(a_value) == 3:
+                ## unpack tuple
+                # freqs, t, Sxx = a_value
+                ## convert to dict and pass attribute as-is
+                # _perform_write_dict_recurrsively(attribute, {'f': freqs, 't': t, 'Sxx': Sxx})
+                pass
+            else:
+                print(f'error: {attribute} of type {type(a_value)} cannot be written. Skipping')                
+
+        _perform_write_dict_recurrsively(f'{root_key}', a_value=a_result)
+
+
+
+
     @classmethod
     def to_hdf(cls, a_result, file_path: Path, root_key: str='/', debug_print=True):
         """ 
@@ -420,12 +499,22 @@ class EEGComputations:
 
         
         """
-        with h5py.File(file_path, 'w') as f:
-            
+        write_mode = 'r+'
+        if (not file_path.exists()):
+            write_mode = 'w'
+
+        with h5py.File(file_path, write_mode) as f:
+
             def _perform_write_dict_recurrsively(attribute, a_value):
-                print(f'attribute: {attribute}')
+                if debug_print:
+                    print(f'attribute: {attribute}')
                 if isinstance(a_value, pd.DataFrame):
-                    a_value.to_hdf(file_path, key=attribute)
+                    a_value.to_hdf(file_path, key=attribute, append=True)
+                elif isinstance(a_value, (xr.DataArray, xr.Dataset)):
+                    # xr.open_dataset("/path/to/my/file.h5", group="/my/group")
+                    # f.create_dataset(attribute, data=a_value.values)
+                    f.create_dataset(attribute, data=a_value)
+                    # xr.open_dataset("/path/to/my/file.h5", group="/my/group")
                 elif isinstance(a_value, np.ndarray):
                     f.create_dataset(attribute, data=a_value)
                 elif isinstance(a_value, (str, float, int)):
@@ -438,13 +527,14 @@ class EEGComputations:
                         
                 elif (Path(attribute).parts[-2] == 'spectogram_result_dict') and isinstance(a_value, tuple) and len(a_value) == 3:
                     ## unpack tuple
-                    freqs, t, Sxx = a_value
+                    # freqs, t, Sxx = a_value
                     ## convert to dict and pass attribute as-is
-                    _perform_write_dict_recurrsively(attribute, {'f': freqs, 't': t, 'Sxx': Sxx})
+                    # _perform_write_dict_recurrsively(attribute, {'f': freqs, 't': t, 'Sxx': Sxx})
+                    pass
                 else:
                     print(f'error: {attribute} of type {type(a_value)} cannot be written. Skipping')                
 
-            _perform_write_dict_recurrsively(f'{root_key}/result', a_value=a_result)
+            _perform_write_dict_recurrsively(f'{root_key}', a_value=a_result)
 
 
 
