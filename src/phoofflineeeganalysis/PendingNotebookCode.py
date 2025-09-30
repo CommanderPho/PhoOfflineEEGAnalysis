@@ -50,6 +50,12 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
 
     if channels_to_select is None:
         channels_to_select = []
+    else:
+        # Ensure all requested channels exist in the dataset
+        available_channels = set(str(ch) for ch in ds_disk['channels'].values)
+        missing = [ch for ch in channels_to_select if ch not in available_channels]
+        if missing:
+            raise ValueError(f"Channels not found in dataset: {missing}")
 
     bands = {
         "Delta (0.5-4 Hz)": (0.5, 4),
@@ -60,14 +66,15 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
     }
 
     n_sessions = len(ds_disk.session)
-    n_extra_channels = len(channels_to_select) if (channels_to_select is not None) else 0
+    n_extra_channels = len(channels_to_select)
     n_extra_cols = 2 * n_extra_channels
-    column_widths = ([0.6, 0.2] * (1 + n_extra_channels))
-
+    # The column_widths must match the number of columns
+    # Always: [0.6, 0.2] for avg, then for each channel: [0.6, 0.2]
+    column_widths = [0.6, 0.2] + [0.6, 0.2] * n_extra_channels
 
     fig = make_subplots(
         rows=n_sessions, cols=(2 + n_extra_cols),
-        column_widths=column_widths, # [0.6, 0.2] + ([0.4] if n_extra_cols else []),
+        column_widths=column_widths,
         shared_xaxes=False,
         subplot_titles=[
             f"{s} ({ds_disk['cognitive_status'].values[i]})"
@@ -108,41 +115,41 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
             row=i+1, col=2
         )
 
-        active_col_idx = 3
         # --- 3) Individual channel spectrograms (optional)
-        if channels_to_select:
-            for col_offset, ch in enumerate(channels_to_select):
-                ch_spec = data.sel(session=session, channels=ch)
-                Z_ch = 10 * np.log10(ch_spec.values)
-                fig.add_trace(
-                    go.Heatmap(
-                        z=Z_ch, x=time, y=freqs,
-                        colorscale="Viridis",
-                        showscale=False,  # hide duplicate colorbars
-                        name=f"{ch} ({session})"
-                    ),
-                    row=i+1, col=active_col_idx,  # (active_col_idx + col_offset)
-                )
-                active_col_idx = active_col_idx + 1 ## increment 
+        for ch_idx, ch in enumerate(channels_to_select):
+            # Defensive: ensure channel exists
+            if ch not in ds_disk['channels'].values:
+                raise ValueError(f"Channel '{ch}' not found in dataset channels: {ds_disk['channels'].values}")
 
-                # --- 2) Bandpower histograms
-                band_means = []
-                for low, high in bands.values():
-                    # band_data = avg_spectrogram.sel(freqs=slice(low, high)).mean().values
-                    band_data = ch_spec.sel(freqs=slice(low, high)).mean().values
+            ch_spec = data.sel(session=session, channels=ch)
+            Z_ch = 10 * np.log10(ch_spec.values)
+            # Each channel gets two columns: spectrogram, then bandpower
+            ch_col_spec = 3 + 2 * ch_idx
+            ch_col_band = 3 + 2 * ch_idx + 1
 
-                    band_means.append(10 * np.log10(band_data))
+            fig.add_trace(
+                go.Heatmap(
+                    z=Z_ch, x=time, y=freqs,
+                    colorscale="Viridis",
+                    showscale=False,  # hide duplicate colorbars
+                    name=f"{ch} ({session})"
+                ),
+                row=i+1, col=ch_col_spec
+            )
 
-                fig.add_trace(
-                    go.Bar(
-                        x=band_means, y=list(bands.keys()),
-                        orientation="h", marker_color="steelblue"
-                    ),
-                    row=i+1, col=active_col_idx # 2
-                )
-            active_col_idx = active_col_idx + 1 ## increment 
-            ## END for col_offset, ch in enu...
+            # --- Bandpower histograms for this channel
+            band_means = []
+            for low, high in bands.values():
+                band_data = ch_spec.sel(freqs=slice(low, high)).mean().values
+                band_means.append(10 * np.log10(band_data))
 
+            fig.add_trace(
+                go.Bar(
+                    x=band_means, y=list(bands.keys()),
+                    orientation="h", marker_color="steelblue"
+                ),
+                row=i+1, col=ch_col_band
+            )
 
     # Layout adjustments
     fig.update_layout(

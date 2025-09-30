@@ -69,21 +69,25 @@ class SpectrogramApp(param.Parameterized):
 
         # Ensure the array is dask-backed (lazy) to handle large data:
         if not isinstance(self.data_var.data, da.Array):
-            # Convert to dask with reasonable chunking
-            # Chunk dims: time is likely largest — chunk across time
-            chunk_sizes = {dim: (size if dim != 'times' else min(512, size))
-                           for dim, size in zip(self.data_var.dims, self.data_var.sizes)}
+            # Convert to dask with reasonable chunking (chunk time, keep others whole)
+            chunk_sizes = {
+                dim: (self.data_var.sizes[dim] if dim != 'times'
+                    else min(512, self.data_var.sizes[dim]))
+                for dim in self.data_var.dims
+            }
             try:
                 self.data_var = self.data_var.chunk(chunk_sizes)
-            except Exception:
-                # fallback: generic chunk
-                self.data_var = self.data_var.chunk({'times': 512})
+            except Exception as e:
+                print(f"Chunking failed: {e}")
+
 
         # Fill param widgets with dataset content
         self.param.session.objects = list(self.ds.session.values)
         self.session = self.param.session.objects[0]
 
-        self.param.channels.objects = list(self.ds.channels.values)
+        self.param['channels'].objects = list(self.ds.channels.values)
+
+
         # default to all channels selected for the averaged plot
         self.channels = list(self.ds.channels.values)
 
