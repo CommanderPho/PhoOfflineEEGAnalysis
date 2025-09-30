@@ -51,6 +51,9 @@ dependencies = [
     "jupyter-bokeh>=4.0.5",
     "plotly>=6.3.0",
     "zarr>=2.18.2",
+    "coiled>=1.122.0",
+    "dask[complete]>=2024.2.1",
+    "panel>=1.4.5",
 ]
 
 [project.scripts]
