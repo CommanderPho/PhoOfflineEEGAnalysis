@@ -1,1 +1,3 @@
 ﻿examples_jupyter/*.zarr
+holoviews-examples
+**/.ipynb_checkpoints

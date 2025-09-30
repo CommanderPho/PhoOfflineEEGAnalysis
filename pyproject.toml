@@ -46,7 +46,7 @@ dependencies = [
     "mnelab>=0.8.6",
     "h5netcdf>=1.6.4",
     "tables>=3.9.2",
-    "holoviews>=1.20.2",
+    "holoviews[recommended]>=1.20.2",
     "hvplot>=0.11.3",
     "jupyter-bokeh>=4.0.5",
     "plotly>=6.3.0",
@@ -54,6 +54,17 @@ dependencies = [
     "coiled>=1.122.0",
     "dask[complete]>=2024.2.1",
     "panel>=1.4.5",
+    "bokeh>=3.4.3",
+    "ipywidgets>=8.1.7",
+    "selenium>=4.32.0",
+    "phantomjs>=1.4.1",
+    "pillow>=11.3.0",
+    "ipython>=8.18.1",
+    "nbconvert>=7.16.6",
+    "nbformat>=5.10.4",
+    "watchfiles>=1.1.0",
+    "datashader>=0.17.0",
+    "jupyterlab>=4.4.9",
 ]
 
 [project.scripts]
