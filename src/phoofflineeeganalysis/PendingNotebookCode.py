@@ -32,15 +32,24 @@ plt.rcParams["figure.subplot.hspace"] = 0.0
 
 
 
-def plot_scrollable_spectogram(ds_disk):
+def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path="spectrogram_sessions.html"):
     """ 
-    from phoofflineeeganalysis.PendingNotebookCode import plot_scrollable_spectogram
+    Plot EEG spectrograms with scrollable/zoomable time axis,
+    bandpower histograms, and selected channel spectrograms.
 
-    _out = plot_scrollable_spectogram(ds_disk=ds_disk)
+    Usage:
+        from phoofflineeeganalysis.PendingNotebookCode import plot_scrollable_spectogram
+
+        _out = plot_scrollable_spectogram(ds_disk=partial_sess_ds, channels_to_select = ['AF3', 'F7', 'F3', 'FC5'], fig_export_path="spectrogram_sessions.html")
+        _out.show()
 
     """
+    import numpy as np
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
+
+    if channels_to_select is None:
+        channels_to_select = []
 
     bands = {
         "Delta (0.5-4 Hz)": (0.5, 4),
@@ -50,15 +59,21 @@ def plot_scrollable_spectogram(ds_disk):
         "Gamma (30-64 Hz)": (30, 64)
     }
 
-    # Create subplot grid (2 rows, 2 cols)
-    fig = make_subplots(
-        rows=2, cols=2, 
-        column_widths=[0.8, 0.2],
-        shared_xaxes=False,
-        subplot_titles=[f"{s} ({ds_disk['cognitive_status'].values[i]})" 
-                        for i, s in enumerate(ds_disk.session.values)]
-    )
+    n_sessions = len(ds_disk.session)
+    n_extra_channels = len(channels_to_select) if (channels_to_select is not None) else 0
+    n_extra_cols = 2 * n_extra_channels
+    column_widths = ([0.6, 0.2] * (1 + n_extra_channels))
 
+
+    fig = make_subplots(
+        rows=n_sessions, cols=(2 + n_extra_cols),
+        column_widths=column_widths, # [0.6, 0.2] + ([0.4] if n_extra_cols else []),
+        shared_xaxes=False,
+        subplot_titles=[
+            f"{s} ({ds_disk['cognitive_status'].values[i]})"
+            for i, s in enumerate(ds_disk.session.values)
+        ]
+    )
 
     # Extract data variable (power values)
     data = ds_disk["__xarray_dataarray_variable__"]
@@ -69,42 +84,79 @@ def plot_scrollable_spectogram(ds_disk):
         freqs = ds_disk["freqs"].values
         Z = 10 * np.log10(avg_spectrogram.values)
 
-        # Add spectrogram heatmap
+        # --- 1) Add spectrogram (all channels avg)
         fig.add_trace(
             go.Heatmap(
-                z=Z, x=time, y=freqs, 
-                colorscale="Viridis", 
+                z=Z, x=time, y=freqs,
+                colorscale="Viridis",
                 colorbar=dict(title="Power (dB)"),
             ),
             row=i+1, col=1
         )
 
-        # Compute band powers
+        # --- 2) Bandpower histograms
         band_means = []
         for low, high in bands.values():
             band_data = avg_spectrogram.sel(freqs=slice(low, high)).mean().values
             band_means.append(10 * np.log10(band_data))
 
-        # Add histogram (bar chart)
         fig.add_trace(
             go.Bar(
-                x=band_means, y=list(bands.keys()), 
+                x=band_means, y=list(bands.keys()),
                 orientation="h", marker_color="steelblue"
             ),
             row=i+1, col=2
         )
 
+        active_col_idx = 3
+        # --- 3) Individual channel spectrograms (optional)
+        if channels_to_select:
+            for col_offset, ch in enumerate(channels_to_select):
+                ch_spec = data.sel(session=session, channels=ch)
+                Z_ch = 10 * np.log10(ch_spec.values)
+                fig.add_trace(
+                    go.Heatmap(
+                        z=Z_ch, x=time, y=freqs,
+                        colorscale="Viridis",
+                        showscale=False,  # hide duplicate colorbars
+                        name=f"{ch} ({session})"
+                    ),
+                    row=i+1, col=active_col_idx,  # (active_col_idx + col_offset)
+                )
+                active_col_idx = active_col_idx + 1 ## increment 
+
+                # --- 2) Bandpower histograms
+                band_means = []
+                for low, high in bands.values():
+                    # band_data = avg_spectrogram.sel(freqs=slice(low, high)).mean().values
+                    band_data = ch_spec.sel(freqs=slice(low, high)).mean().values
+
+                    band_means.append(10 * np.log10(band_data))
+
+                fig.add_trace(
+                    go.Bar(
+                        x=band_means, y=list(bands.keys()),
+                        orientation="h", marker_color="steelblue"
+                    ),
+                    row=i+1, col=active_col_idx # 2
+                )
+            active_col_idx = active_col_idx + 1 ## increment 
+            ## END for col_offset, ch in enu...
+
+
     # Layout adjustments
     fig.update_layout(
-        height=900, width=1400,
-        title="EEG Session Spectrograms with Bandpower Summaries",
+        height=900, width=1800,
+        title="EEG Session Spectrograms with Bandpower + Selected Channels",
         xaxis_title="Time (s)", yaxis_title="Frequency (Hz)",
     )
 
-    # Save as HTML (interactive, scrollable)
-    fig.write_html("spectrogram_sessions.html")
+    if fig_export_path is not None:
+        print(f'exporting figure to "{fig_export_path}"...')
+        fig.write_html(fig_export_path)
 
     return fig
+
 
 
 def batch_compute_all_eeg_datasets(eeg_raws, limit_num_items: Optional[int]=None, max_workers: Optional[int]=None):
