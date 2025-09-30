@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from datetime import datetime, timezone, timedelta
 import matplotlib.pyplot as plt
+import numpy as np
 
 plt.rcParams["axes.titlesize"] = 8
 plt.rcParams["axes.labelsize"] = 8
@@ -31,6 +32,79 @@ plt.rcParams["figure.subplot.hspace"] = 0.0
 
 
 
+def plot_scrollable_spectogram(ds_disk):
+    """ 
+    from phoofflineeeganalysis.PendingNotebookCode import plot_scrollable_spectogram
+
+    _out = plot_scrollable_spectogram(ds_disk=ds_disk)
+
+    """
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    bands = {
+        "Delta (0.5-4 Hz)": (0.5, 4),
+        "Theta (4-8 Hz)": (4, 8),
+        "Alpha (8-13 Hz)": (8, 13),
+        "Beta (13-30 Hz)": (13, 30),
+        "Gamma (30-64 Hz)": (30, 64)
+    }
+
+    # Create subplot grid (2 rows, 2 cols)
+    fig = make_subplots(
+        rows=2, cols=2, 
+        column_widths=[0.8, 0.2],
+        shared_xaxes=False,
+        subplot_titles=[f"{s} ({ds_disk['cognitive_status'].values[i]})" 
+                        for i, s in enumerate(ds_disk.session.values)]
+    )
+
+
+    # Extract data variable (power values)
+    data = ds_disk["__xarray_dataarray_variable__"]
+
+    for i, session in enumerate(ds_disk.session.values):
+        avg_spectrogram = data.sel(session=session).mean(dim="channels")
+        time = ds_disk["times"].values
+        freqs = ds_disk["freqs"].values
+        Z = 10 * np.log10(avg_spectrogram.values)
+
+        # Add spectrogram heatmap
+        fig.add_trace(
+            go.Heatmap(
+                z=Z, x=time, y=freqs, 
+                colorscale="Viridis", 
+                colorbar=dict(title="Power (dB)"),
+            ),
+            row=i+1, col=1
+        )
+
+        # Compute band powers
+        band_means = []
+        for low, high in bands.values():
+            band_data = avg_spectrogram.sel(freqs=slice(low, high)).mean().values
+            band_means.append(10 * np.log10(band_data))
+
+        # Add histogram (bar chart)
+        fig.add_trace(
+            go.Bar(
+                x=band_means, y=list(bands.keys()), 
+                orientation="h", marker_color="steelblue"
+            ),
+            row=i+1, col=2
+        )
+
+    # Layout adjustments
+    fig.update_layout(
+        height=900, width=1400,
+        title="EEG Session Spectrograms with Bandpower Summaries",
+        xaxis_title="Time (s)", yaxis_title="Frequency (Hz)",
+    )
+
+    # Save as HTML (interactive, scrollable)
+    fig.write_html("spectrogram_sessions.html")
+
+    return fig
 
 
 def batch_compute_all_eeg_datasets(eeg_raws, limit_num_items: Optional[int]=None, max_workers: Optional[int]=None):
