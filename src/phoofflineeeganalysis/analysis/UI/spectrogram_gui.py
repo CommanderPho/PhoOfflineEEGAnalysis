@@ -37,7 +37,7 @@ DEFAULT_BANDS = {
 def _to_db(x, floor=1e-12):
     return 10.0 * np.log10(np.maximum(x, floor))
 
-
+# @metadata_attributes(short_name=None, tags=['WORKING', 'panel', 'browser', 'spectogram'], input_requires=[], output_provides=[], uses=[], used_by=[], creation_date='2025-10-01 18:22', related_items=[])
 class SpectrogramApp(param.Parameterized):
     """
     Panel/HoloViews application for spectrogram visualization with datashader + dask.
@@ -62,10 +62,11 @@ class SpectrogramApp(param.Parameterized):
         super().__init__(ds=ds, channels_to_select=channels_to_select or [], **params)
 
         # Basic dataset validation & conversion
-        if "__xarray_dataarray_variable__" not in ds.data_vars:
-            raise ValueError("Dataset must contain a data variable named '__xarray_dataarray_variable__' (power data).")
-
-        self.data_var = ds["__xarray_dataarray_variable__"]
+        if "__xarray_dataarray_variable__" in ds.data_vars:
+            self.data_var = ds["__xarray_dataarray_variable__"]
+        else:
+            # raise ValueError("Dataset must contain a data variable named '__xarray_dataarray_variable__' (power data).")
+            self.data_var = ds.to_dataarray()
 
         # Ensure the array is dask-backed (lazy) to handle large data:
         if not isinstance(self.data_var.data, da.Array):

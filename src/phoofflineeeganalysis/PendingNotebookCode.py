@@ -2,6 +2,7 @@ from typing import Dict, List, Tuple, Optional, Callable, Union, Any
 from nptyping import NDArray
 import numpy as np
 import pandas as pd
+import xarray as xr
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
@@ -11,7 +12,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from datetime import datetime, timezone, timedelta
 import matplotlib.pyplot as plt
-import numpy as np
+
 
 plt.rcParams["axes.titlesize"] = 8
 plt.rcParams["axes.labelsize"] = 8
@@ -282,6 +283,66 @@ def batch_compute_all_eeg_datasets(eeg_raws, limit_num_items: Optional[int]=None
 
     print(f"Completed processing all {len(active_only_out_eeg_raws)} EEG datasets.")
     return active_only_out_eeg_raws, active_all_outputs_dict
+
+
+
+
+# @function_attributes(short_name=None, tags=['xarray'], input_requires=[], output_provides=[], uses=[], used_by=[], creation_date='2025-10-01 18:55', related_items=[])
+def build_merged(active_only_out_eeg_raws, results, day_status_dict) -> Union[xr.Dataset, xr.DataArray]:
+    """ 
+    from phoofflineeeganalysis.PendingNotebookCode import build_merged
+
+    cog_categorical_cats = ['cog_bad', 'cog_poor', 'cog_okay', 'cog_good', 'cog_great']
+
+    day_status_dict = {
+        '2025-09-19/01-54-39': 'cog_poor',
+        '2025-09-18/15-23-08': 'cog_poor',
+        '2025-09-22/21-35-47': 'cog_okay',
+        '2025-09-19/20-51-18': 'cog_good',
+        '2025-09-18/03-18-42': 'cog_great',
+        '2025-09-22/21-35-47': 'cog_bad',
+        '2025-09-21/08-55-41': 'cog_bad',
+    }
+
+
+    combined_ds, combined_da = build_merged(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, day_status_dict=day_status_dict)
+    combined_ds
+
+    """
+    num_sessions: int = len(active_only_out_eeg_raws)
+    all_Sxx = []
+    data_vars = {}
+    coords = {"session": [], "cognitive_status": []}
+    for an_xdf_dataset_idx in np.arange(num_sessions):
+        a_raw = active_only_out_eeg_raws[an_xdf_dataset_idx]
+        a_meas_date = a_raw.info.get('meas_date')
+        a_raw_key: str = a_meas_date.strftime("%Y-%m-%d/%H-%M-%S") # '2025-09-22/21-35-47'
+        a_status = day_status_dict.get(a_raw_key, None)
+        if a_status:
+            ## a status
+            a_result = results[an_xdf_dataset_idx]
+            Sxx = a_result['spectogram']['Sxx']
+            Sxx = Sxx.assign_attrs(cognitive_status=a_status) # xarray.DataArray - channels: 14, freqs: 513, times: 1116
+            data_vars[a_raw_key] = Sxx
+            coords["session"].append(a_raw_key)
+            coords["cognitive_status"].append(a_status)
+
+
+            # Sxx ## TODO: save the xarray to a single file (as a list of xarrays for each `an_xdf_dataset_idx`
+            Sxx = Sxx.expand_dims(session=[a_raw_key])
+            all_Sxx.append(Sxx)
+
+    combined_da = xr.concat(all_Sxx, dim="session")
+    # Assign cognitive_status as a coordinate on session dim
+    combined_da = combined_da.assign_coords(cognitive_status=("session", list(day_status_dict.values())))
+    combined_da = combined_da.assign_attrs(cognitive_status=list(day_status_dict.values()))
+
+    combined_ds: xr.Dataset = xr.Dataset(data_vars=data_vars, coords=coords)
+    combined_ds = combined_ds.assign_attrs(cognitive_status=list(day_status_dict.values()))
+
+    return (combined_ds, combined_da)
+
+
 
 
 import xarray as xr
