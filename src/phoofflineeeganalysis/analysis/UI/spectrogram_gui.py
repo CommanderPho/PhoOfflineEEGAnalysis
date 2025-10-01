@@ -257,16 +257,17 @@ class SpectrogramApp(param.Parameterized):
     def hv_spectrogram_panel(self):
         """Return the main datashaded averaged spectrogram (HoloViews pane)"""
         arr = self._get_avg_spectrogram_dask()  # xr.DataArray dims ('freqs','times')
+        # Ensure dims are ordered with times on x-axis and freqs on y-axis
+        arr_tf = arr.transpose('times', 'freqs')
         # Try to create hv.Image directly from xarray if supported
         try:
-            # transpose to hv convention (times x freqs) if needed by hv.Image; hv.Image(xarray) handles dims order
-            img = hv.Image(arr)
+            img = hv.Image(arr_tf)
         except Exception:
             # fallback make small numpy compute (not ideal for large arrays)
-            z = arr.values
+            z = arr_tf.values
             if self.use_db:
                 z = _to_db(z)
-            img = hv.Image((arr['times'].values, arr['freqs'].values, z), ['times', 'freqs'], '__val__')
+            img = hv.Image((arr_tf['times'].values, arr_tf['freqs'].values, z), ['times', 'freqs'], '__val__')
         # datashade it using holoviews.operation.datashader
         # Pass aggregator as string to satisfy regrid/datashade ClassSelector
         shaded = hd.datashade(img, aggregator=self.agg_func, cmap=self.colormap)
@@ -280,14 +281,16 @@ class SpectrogramApp(param.Parameterized):
         panels = []
         for ch in self.channels_to_select:
             arr = self._get_channel_spectrogram_dask(ch).squeeze()
+            # Ensure dims are ordered with times on x-axis and freqs on y-axis
+            arr_tf = arr.transpose('times', 'freqs')
             # build hv.Image
             try:
-                img = hv.Image(arr)
+                img = hv.Image(arr_tf)
             except Exception:
-                z = arr.values
+                z = arr_tf.values
                 if self.use_db:
                     z = _to_db(z)
-                img = hv.Image((arr['times'].values, arr['freqs'].values, z), ['times', 'freqs'], '__val__')
+                img = hv.Image((arr_tf['times'].values, arr_tf['freqs'].values, z), ['times', 'freqs'], '__val__')
             # Pass aggregator as string to satisfy regrid/datashade ClassSelector
             shaded = hd.datashade(img, aggregator=self.agg_func, cmap=self.colormap)
             shaded = shaded.opts(title=f"{ch}", height=150, width=300)
