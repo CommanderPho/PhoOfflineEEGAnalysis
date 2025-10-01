@@ -75,11 +75,7 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
     fig = make_subplots(
         rows=n_sessions, cols=(2 + n_extra_cols),
         column_widths=column_widths,
-        shared_xaxes=False,
-        subplot_titles=[
-            f"{s} ({ds_disk['cognitive_status'].values[i]})"
-            for i, s in enumerate(ds_disk.session.values)
-        ]
+        shared_xaxes=False
     )
 
     # Extract data variable (power values)
@@ -131,6 +127,7 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
                 go.Heatmap(
                     z=Z_ch, x=time, y=freqs,
                     colorscale="Viridis",
+                    # colorbar=dict(title="Power (dB)") if i == 0 else None,
                     showscale=False,  # hide duplicate colorbars
                     name=f"{ch} ({session})"
                 ),
@@ -150,6 +147,28 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
                 ),
                 row=i+1, col=ch_col_band
             )
+
+    # Add clear, large session headers at the start of each row (session)
+    total_cols = 2 + n_extra_cols
+    for i, session in enumerate(ds_disk.session.values):
+        subplot_index = i * total_cols + 1  # axis index for (row=i+1, col=1)
+        yaxis_name = "yaxis" if subplot_index == 1 else f"yaxis{subplot_index}"
+        # Domain is in figure paper coordinates [y0, y1]
+        y_domain = getattr(fig.layout, yaxis_name).domain
+        y_top = float(y_domain[1])
+        # Place the label just inside the top of the row, at the very left
+        y_pos = y_top - 0.02
+        fig.add_annotation(
+            xref="paper", x=0.0, yref="paper", y=y_pos,
+            text=f"GOOD - {session}",
+            showarrow=False,
+            xanchor="left", yanchor="top",
+            font=dict(size=20, color="black"),
+            bgcolor="rgba(255,255,255,0.75)",
+            bordercolor="black",
+            borderwidth=1,
+            align="left"
+        )
 
     # Layout adjustments
     fig.update_layout(

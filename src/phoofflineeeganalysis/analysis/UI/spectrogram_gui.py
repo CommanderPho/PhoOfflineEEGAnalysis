@@ -85,7 +85,7 @@ class SpectrogramApp(param.Parameterized):
         self.param.session.objects = list(self.ds.session.values)
         self.session = self.param.session.objects[0]
 
-        self.param['channels'].objects = list(self.ds.channels.values)
+        self.param.channels = list(self.ds.channels.values)
 
 
         # default to all channels selected for the averaged plot
@@ -115,9 +115,31 @@ class SpectrogramApp(param.Parameterized):
         self.db_toggle = pn.widgets.Checkbox(name='Show dB', value=self.use_db)
         self.export_button = pn.widgets.Button(name='Export current view to HTML', button_type='primary')
 
-        # link widget events to param values
-        pn.bind(self._set_param_from_widget, self.session_selector, self.channel_selector,
-                self.channel_select_indiv, self.time_range_slider, self.colormap_selector, self.db_toggle)
+        # Link widget events to app parameters via explicit watchers
+        def _on_session(evt):
+            self.session = evt.new
+        def _on_channels(evt):
+            self.channels = list(evt.new)
+        def _on_channels_indiv(evt):
+            self.channels_to_select = list(evt.new)
+        def _on_time_window(evt):
+            # Ensure tuple of floats
+            try:
+                start, end = evt.new
+                self.time_window = (float(start), float(end))
+            except Exception:
+                pass
+        def _on_colormap(evt):
+            self.colormap = evt.new
+        def _on_db_toggle(evt):
+            self.use_db = bool(evt.new)
+
+        self.session_selector.param.watch(_on_session, 'value')
+        self.channel_selector.param.watch(_on_channels, 'value')
+        self.channel_select_indiv.param.watch(_on_channels_indiv, 'value')
+        self.time_range_slider.param.watch(_on_time_window, 'value')
+        self.colormap_selector.param.watch(_on_colormap, 'value')
+        self.db_toggle.param.watch(_on_db_toggle, 'value')
 
         self.export_button.on_click(self._export_current_view)
 
@@ -199,17 +221,9 @@ class SpectrogramApp(param.Parameterized):
                 pass
 
         # Use datashader to rasterize
-        if aggregator == 'mean':
-            agg = ds.reductions.mean
-        elif aggregator == 'median':
-            agg = ds.reductions.median
-        elif aggregator == 'max':
-            agg = ds.reductions.max
-        else:
-            agg = ds.reductions.mean
-
         # Use holoviews operation: datashade (returns an RGB Element)
-        shaded = hd.datashade(img, aggregator=agg, cmap=cmap, dynamic=False)
+        # Pass aggregator as a string name (e.g., 'mean', 'median', 'max')
+        shaded = hd.datashade(img, aggregator=aggregator, cmap=cmap, dynamic=False)
         # Convert to hv.RGB for display; allow link to hover tool by using Rasterize when needed
         return shaded
 
@@ -238,6 +252,7 @@ class SpectrogramApp(param.Parameterized):
         # Called when parameters change; placeholder for potential cached computations
         pass
 
+    @pn.depends('session', 'channels', 'time_window', 'colormap', 'use_db', 'agg_func')
     def hv_spectrogram_panel(self):
         """Return the main datashaded averaged spectrogram (HoloViews pane)"""
         arr = self._get_avg_spectrogram_dask()  # xr.DataArray dims ('freqs','times')
@@ -252,11 +267,13 @@ class SpectrogramApp(param.Parameterized):
                 z = _to_db(z)
             img = hv.Image((arr['times'].values, arr['freqs'].values, z), ['times', 'freqs'], '__val__')
         # datashade it using holoviews.operation.datashader
-        shaded = hd.datashade(img, aggregator=getattr(ds.reductions, self.agg_func), cmap=self.colormap)
+        # Pass aggregator as string to satisfy regrid/datashade ClassSelector
+        shaded = hd.datashade(img, aggregator=self.agg_func, cmap=self.colormap)
         # Add some options & return as a Panel pane
         shaded = shaded.opts(height=300, width=900, tools=['hover'], active_tools=['wheel_zoom'])
         return pn.pane.HoloViews(shaded)
 
+    @pn.depends('session', 'channels_to_select', 'time_window', 'colormap', 'use_db', 'agg_func')
     def hv_individual_channels_panel(self):
         """Return a column of datashaded spectrograms for each selected individual channel."""
         panels = []
@@ -270,7 +287,8 @@ class SpectrogramApp(param.Parameterized):
                 if self.use_db:
                     z = _to_db(z)
                 img = hv.Image((arr['times'].values, arr['freqs'].values, z), ['times', 'freqs'], '__val__')
-            shaded = hd.datashade(img, aggregator=getattr(ds.reductions, self.agg_func), cmap=self.colormap)
+            # Pass aggregator as string to satisfy regrid/datashade ClassSelector
+            shaded = hd.datashade(img, aggregator=self.agg_func, cmap=self.colormap)
             shaded = shaded.opts(title=f"{ch}", height=150, width=300)
             panels.append(shaded)
         if panels:
@@ -278,42 +296,70 @@ class SpectrogramApp(param.Parameterized):
         else:
             return pn.pane.Markdown("No individual channels selected")
 
+    @pn.depends('session', 'channels', 'time_window', 'use_db')
     def bandpower_panel(self):
         """Return a small bar chart of bandpowers computed with Dask (compute happens lazily when rendering)."""
         try:
             band_vals = self.compute_bandpowers()
         except Exception as e:
             # If compute fails (e.g., too big), attempt incremental compute with coarse downsampling
-            pn.state.notifications.warning("Bandpower computation failed; try reducing time window or channels.")
+            _notifier = getattr(pn.state, 'notifications', None)
+            if _notifier is not None:
+                try:
+                    _notifier.warning("Bandpower computation failed; try reducing time window or channels.")
+                except Exception:
+                    print("Bandpower computation failed; try reducing time window or channels.")
+            else:
+                print("Bandpower computation failed; try reducing time window or channels.")
             band_vals = {k: np.nan for k in DEFAULT_BANDS.keys()}
 
         df = pd.DataFrame({'band': list(band_vals.keys()), 'power': list(band_vals.values())})
-        bar = hv.Bar(df, 'band', 'power').opts(height=250, width=300, xlabel='Band', ylabel='Power (dB)' if self.use_db else 'Power')
+        bar = hv.Bars(df, 'band', 'power').opts(height=250, width=300, xlabel='Band', ylabel='Power (dB)' if self.use_db else 'Power')
         return pn.pane.HoloViews(bar)
 
     def _export_current_view(self, event=None):
         """Export the current composed view to an HTML file using hv.save or pn.panel.save."""
         # Compose a layout similar to the main panel and save to HTML
         layout = pn.Row(self.main_view(), self.side_view())
+        _notifier = getattr(pn.state, 'notifications', None)
         try:
             layout.save(self.export_filename, embed=True)
-            pn.state.notifications.success(f"Saved to {self.export_filename}")
+            if _notifier is not None:
+                try:
+                    _notifier.success(f"Saved to {self.export_filename}")
+                except Exception:
+                    print(f"Saved to {self.export_filename}")
+            else:
+                print(f"Saved to {self.export_filename}")
         except Exception as e:
-            pn.state.notifications.error(f"Export failed: {e}")
+            if _notifier is not None:
+                try:
+                    _notifier.error(f"Export failed: {e}")
+                except Exception:
+                    print(f"Export failed: {e}")
+            else:
+                print(f"Export failed: {e}")
 
     # Compose main layout pieces
     def main_view(self):
         return pn.Column(
-            pn.Row(pn.Column(self.session_selector, self.channel_selector, self.channel_select_indiv, self.time_range_slider,
-                             pn.Row(self.colormap_selector, self.db_toggle, self.export_button)),
-                   pn.Spacer(width=20),
-                   pn.Column(self.hv_spectrogram_panel, self.bandpower_panel)),
+            pn.Row(
+                pn.Column(
+                    self.session_selector,
+                    self.channel_selector,
+                    self.channel_select_indiv,
+                    self.time_range_slider,
+                    pn.Row(self.colormap_selector, self.db_toggle, self.export_button)
+                ),
+                pn.Spacer(width=20),
+                pn.Column(self.hv_spectrogram_panel, self.bandpower_panel)
+            ),
             sizing_mode='stretch_width'
         )
 
     def side_view(self):
         return pn.Column(pn.pane.Markdown("### Individual channels"),
-                         self.hv_individual_channels_panel(),
+                         self.hv_individual_channels_panel,
                          sizing_mode='stretch_width')
 
     def panel(self):
