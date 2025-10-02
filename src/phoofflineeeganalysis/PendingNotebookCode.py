@@ -49,11 +49,12 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
+    available_channels = set(str(ch) for ch in ds_disk['channels'].values)
+
     if channels_to_select is None:
         channels_to_select = []
     else:
         # Ensure all requested channels exist in the dataset
-        available_channels = set(str(ch) for ch in ds_disk['channels'].values)
         missing = [ch for ch in channels_to_select if ch not in available_channels]
         if missing:
             raise ValueError(f"Channels not found in dataset: {missing}")
@@ -82,21 +83,33 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
     # Extract data variable (power values)
     data = ds_disk["__xarray_dataarray_variable__"]
 
+    n_channels: int = len(available_channels)
+
+    if len(channels_to_select) > 0:
+        ## filter on active channels:
+        data = data.sel(channels=channels_to_select)
+
+    curr_active_channels = set(str(ch) for ch in data['channels'].values)
+    curr_n_active_channels: int = len(curr_active_channels)
+
     for i, session in enumerate(ds_disk.session.values):
-        avg_spectrogram = data.sel(session=session).mean(dim="channels")
+        avg_spectrogram = data.sel(session=session).mean(dim="channels") ## average over channels
+
         time = ds_disk["times"].values
         freqs = ds_disk["freqs"].values
         Z = 10 * np.log10(avg_spectrogram.values)
 
         # --- 1) Add spectrogram (all channels avg)
+        row_col_dict = dict(row=i+1, col=1)
         fig.add_trace(
             go.Heatmap(
                 z=Z, x=time, y=freqs,
                 colorscale="Viridis",
                 colorbar=dict(title="Power (dB)"),
             ),
-            row=i+1, col=1
+            **row_col_dict,
         )
+        fig.update_yaxes(title_text=f"All {len(channels_to_select)} Channels Average\nFrequency (Hz)", **row_col_dict)
 
         # --- 2) Bandpower histograms
         band_means = []
@@ -104,12 +117,13 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
             band_data = avg_spectrogram.sel(freqs=slice(low, high)).mean().values
             band_means.append(10 * np.log10(band_data))
 
+        row_col_dict = dict(row=i+1, col=2)
         fig.add_trace(
             go.Bar(
                 x=band_means, y=list(bands.keys()),
                 orientation="h", marker_color="steelblue"
             ),
-            row=i+1, col=2
+            **row_col_dict,
         )
 
         # --- 3) Individual channel spectrograms (optional)
@@ -124,6 +138,7 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
             ch_col_spec = 3 + 2 * ch_idx
             ch_col_band = 3 + 2 * ch_idx + 1
 
+            row_col_dict = dict(row=i+1, col=ch_col_spec)
             fig.add_trace(
                 go.Heatmap(
                     z=Z_ch, x=time, y=freqs,
@@ -132,8 +147,10 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
                     showscale=False,  # hide duplicate colorbars
                     name=f"{ch} ({session})"
                 ),
-                row=i+1, col=ch_col_spec
+                **row_col_dict,
             )
+            # fig.update_layout(title=f'{ch}', **row_col_dict)
+            fig.update_yaxes(title_text=f"{ch}", **row_col_dict)
 
             # --- Bandpower histograms for this channel
             band_means = []
@@ -141,13 +158,16 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
                 band_data = ch_spec.sel(freqs=slice(low, high)).mean().values
                 band_means.append(10 * np.log10(band_data))
 
+            row_col_dict = dict(row=i+1, col=ch_col_band)
             fig.add_trace(
                 go.Bar(
                     x=band_means, y=list(bands.keys()),
                     orientation="h", marker_color="steelblue"
                 ),
-                row=i+1, col=ch_col_band
+                **row_col_dict,
             )
+            # fig.update_layout(title=f'{ch}', **row_col_dict)
+            fig.update_yaxes(title_text=f"{ch}", **row_col_dict)
 
     # Add clear, large session headers at the start of each row (session)
     total_cols = 2 + n_extra_cols
@@ -173,9 +193,11 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
 
     # Layout adjustments
     fig.update_layout(
-        height=900, width=1800,
+        height=900,
+        # width=1800,
+        width=8800,
         title="EEG Session Spectrograms with Bandpower + Selected Channels",
-        xaxis_title="Time (s)", yaxis_title="Frequency (Hz)",
+        xaxis_title="Time (s)", yaxis_title="All {len(channels_to_select)} Channels Average\nFrequency (Hz)",
     )
 
     if fig_export_path is not None:
