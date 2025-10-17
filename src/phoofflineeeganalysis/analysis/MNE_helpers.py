@@ -223,7 +223,7 @@ class MNEHelpers:
         existing_annotations = raw.annotations
 
         ## align annotations:
-        eeg_existing_annotations_orig_time = existing_annotations.orig_time
+        eeg_existing_annotations_orig_time = existing_annotations.orig_time ## for some reason the initial (empty) one is not None: datetime.datetime(2025, 9, 11, 10, 13, 28, tzinfo=datetime.timezone.utc)
         new_orig_time = new_annots.orig_time
         
         if align_to_Raw_meas_time:
@@ -570,6 +570,43 @@ class DatasetRawExportToConvertedFormatFileMixin:
             _perform_write_dict_recurrsively(f'{root_key}/raw', a_value=raw)
 
 
+    # ---------------------------------------------------------------------------- #
+    #                              Annotations Helpers                             #
+    # ---------------------------------------------------------------------------- #
+    def extract_annotations_df(self, ignored_comment_descriptions = ['BAD_motion', '']) -> pd.DataFrame:
+        ## Extract comments/notes/annotations/etc from the outputs
+        an_annotations = self.annotations
+        if (an_annotations is not None) and (len(an_annotations) > 0):
+            an_annotation_df = an_annotations.to_data_frame(time_format='datetime')
+            an_annotation_df = an_annotation_df[np.logical_not(np.isin(an_annotation_df['description'], ignored_comment_descriptions))]
+            return an_annotation_df
+            # an_annotation_df
+        else:
+            return None ## empty/None
+
+        # extracted_comments_df: pd.DataFrame = pd.concat(_extracted_comments)
+        # extracted_comments_df = extracted_comments_df.rename(columns={'onset':'time', 'description':'text'}, inplace=False)
+        # return extracted_comments_df
+
+    def debug_test_annotations_timestamps(self) -> bool:
+        annotations_df: pd.DataFrame = self.extract_annotations_df(ignored_comment_descriptions=['BAD_motion', ''])
+        if annotations_df is None:
+            return True # fine
+        annotations_df['duration_dt'] = [pd.Timedelta(seconds=v) for v in annotations_df['duration'].to_numpy()]
+        annotations_df['onset_end_t'] = annotations_df['onset'] + annotations_df['duration_dt'] # pd.Timedelta(seconds=annotations_df['duration'].to_numpy()) 
+
+        earliest_t: np.timedelta64 = np.nanmin(annotations_df['onset'])
+        latest_t: np.timedelta64 = np.nanmax(annotations_df['onset_end_t'])
+        annotation_time_range: np.timedelta64 = (latest_t - earliest_t)
+        annotation_time_range = pd.Timedelta(annotation_time_range)
+        annotation_time_range_num_secs: float = annotation_time_range.total_seconds()
+        print(f'annotation_time_range: {annotation_time_range}, annotation_time_range_num_secs: {annotation_time_range_num_secs}') # numpy.timedelta64(4852499455000,'ns')
+        if (annotation_time_range_num_secs < 1.0):
+            raise NotImplementedError(f'Annotations all fall within a single second of one another. Suspecting a nano/micro/second formatting issue!\nannotations_df: {annotations_df}')
+            return False
+        else:
+            return True
+
 
 class RawExtended(DatasetRawExportToConvertedFormatFileMixin, DatasetDatetimeBoundsRenderingMixin, mne.io.Raw):
     
@@ -594,6 +631,8 @@ class RawArrayExtended(DatasetRawExportToConvertedFormatFileMixin, DatasetDateti
     def down_convert_to_base_type(self) -> mne.io.RawArray:
         self.__class__ = mne.io.RawArray
         return self
+
+
 
 
 def up_convert_raw_obj(raw_obj):
