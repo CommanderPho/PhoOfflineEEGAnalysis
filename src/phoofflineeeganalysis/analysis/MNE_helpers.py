@@ -610,6 +610,10 @@ class DatasetRawExportToConvertedFormatFileMixin:
         annotations_df: pd.DataFrame = self.extract_annotations_df(ignored_comment_descriptions=['BAD_motion', ''])
         if annotations_df is None:
             return True # fine
+        n_annotations: int = len(annotations_df)
+        if (n_annotations < 2):
+            return True ## true if we don't have enough annotations to approximate a range
+        
         annotations_df['duration_dt'] = [pd.Timedelta(seconds=v) for v in annotations_df['duration'].to_numpy()]
         annotations_df['onset_end_t'] = annotations_df['onset'] + annotations_df['duration_dt'] # pd.Timedelta(seconds=annotations_df['duration'].to_numpy()) 
 
