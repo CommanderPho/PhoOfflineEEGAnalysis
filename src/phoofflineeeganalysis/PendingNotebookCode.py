@@ -451,7 +451,7 @@ def batch_compute_all_eeg_datasets(eeg_raws, limit_num_items: Optional[int]=None
 
 
 # @function_attributes(short_name=None, tags=['xarray'], input_requires=[], output_provides=[], uses=[], used_by=[], creation_date='2025-10-01 18:55', related_items=[])
-def build_merged(active_only_out_eeg_raws, results, day_status_dict) -> Union[xr.Dataset, xr.DataArray]:
+def build_merged(active_only_out_eeg_raws, results, day_status_dict, only_include_sessions_with_status_entries: bool = True) -> Union[xr.Dataset, xr.DataArray]:
     """ 
     from phoofflineeeganalysis.PendingNotebookCode import build_merged
 
@@ -481,20 +481,26 @@ def build_merged(active_only_out_eeg_raws, results, day_status_dict) -> Union[xr
         a_meas_date = a_raw.info.get('meas_date')
         a_raw_key: str = a_meas_date.strftime("%Y-%m-%d/%H-%M-%S") # '2025-09-22/21-35-47'
         a_status = day_status_dict.get(a_raw_key, None)
-        if a_status:
+        if (a_status is not None) or (not only_include_sessions_with_status_entries):
             ## a status
+            if (a_status is None):
+                a_status = 'cog_UNLABELED' ## replace with 'cog_UNLABELED
+                day_status_dict[a_raw_key] = a_status ## set 'cog_UNLABELED'
+
+
             a_result = results[an_xdf_dataset_idx]
             Sxx = a_result['spectogram']['Sxx']
-            Sxx = Sxx.assign_attrs(cognitive_status=a_status) # xarray.DataArray - channels: 14, freqs: 513, times: 1116
+            if a_status is not None:
+                Sxx = Sxx.assign_attrs(cognitive_status=a_status) # xarray.DataArray - channels: 14, freqs: 513, times: 1116
+
             data_vars[a_raw_key] = Sxx
             coords["session"].append(a_raw_key)
             coords["cognitive_status"].append(a_status)
 
-
             # Sxx ## TODO: save the xarray to a single file (as a list of xarrays for each `an_xdf_dataset_idx`
             Sxx = Sxx.expand_dims(session=[a_raw_key])
             all_Sxx.append(Sxx)
-
+    ## END for an_xdf_dataset_id...
     combined_da = xr.concat(all_Sxx, dim="session")
     # Assign cognitive_status as a coordinate on session dim
     combined_da = combined_da.assign_coords(cognitive_status=("session", list(day_status_dict.values())))
