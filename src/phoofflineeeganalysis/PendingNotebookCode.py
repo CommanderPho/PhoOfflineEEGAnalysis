@@ -156,7 +156,13 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
     )
 
     # Extract data variable (power values)
-    data = ds_disk["__xarray_dataarray_variable__"]
+    if isinstance(ds_disk, xr.Dataset):
+        data = ds_disk["__xarray_dataarray_variable__"]
+    elif isinstance(ds_disk, xr.DataArray):
+        data = ds_disk
+    else:
+        raise NotImplementedError(f'unepxected type: {type(ds_disk)}\nds_disk: {ds_disk}')
+
 
     n_channels: int = len(available_channels)
 
