@@ -856,17 +856,6 @@ class LabRecorderXDF:
                 stream_last_timestamp: float = float(stream['footer']['info']['last_timestamp'][0])
                 # stream_num_samples: int = int(stream['footer']['info']['sample_count'][0])
                 stream_approx_dur_sec: float = stream_last_timestamp - stream_first_timestamp
-
-                # a_start_stop_diff: float = (logger_timestamps[-1] - logger_timestamps[0])
-                # np.array([pd.to_timedelta(a_start_stop_diff, unit=a_unit) for a_unit in ('ns', 'us', 'ms', 's')])
-                # np.array([(pd.to_timedelta(a_start_stop_diff, unit=a_unit)/stream_approx_dur_sec) for a_unit in ('ns', 'us', 'ms', 's')])
-                # unit_options_array = ('ns', 'us', 'ms', 's')
-                # unit_test_array = np.array([pd.to_timedelta(a_start_stop_diff, unit=a_unit).total_seconds() for a_unit in unit_options_array])
-                # best_found_unit_idx: int = np.argmin(stream_approx_dur_sec / unit_test_array)
-                # assert best_found_unit_idx > -1, f"best_found_unit_idx: {best_found_unit_idx} not found?!"
-                # best_found_unit: str = unit_options_array[best_found_unit_idx]
-                # best_found_unit
-
                 best_found_unit: str = MNEHelpers.determine_best_timedelta_unit_for_annotations(unknown_unit_timestamps=logger_timestamps, stream_approx_dur_sec=stream_approx_dur_sec)
 
                 # [pd.to_timedelta(a_start_stop_diff, unit=a_unit).total_seconds() for a_unit in ('ns', 'us', 'ms', 's')] 
