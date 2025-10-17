@@ -841,8 +841,8 @@ class LabRecorderXDF:
             ## Process Data:
             # stream_info_dict
 
-            if fs == 0:  
-                # continue # skip irregular event streams
+            if (fs == 0):  
+                # irregular event streams
                 ch_names = ['TextLogger_Markers']
                 ch_types = ['misc']
                 logger_timestamps = stream['time_stamps']
@@ -915,7 +915,8 @@ class LabRecorderXDF:
                 motion_annots: mne.Annotations = MotionData.find_high_accel_periods(an_motion_raw_ds, should_set_bad_period_annotations=True)
 
                 MNEHelpers.merge_annotations(raw=an_eeg_ds, new_annots=motion_annots, align_to_Raw_meas_time=True)
-
+        ## END for an_eeg_ds in raws_dict.get(DataModalityType.EEG.value, [])...
+        
 
 
         return stream_infos, raws, raws_dict
@@ -994,7 +995,8 @@ class LabRecorderXDF:
     @classmethod
     def load_and_process_all(cls, lab_recorder_output_path: Path, 
                                   labRecorder_PostProcessed_path: Optional[Path] = Path("E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/LabRecorder_PostProcessed").resolve(),
-                                    should_write_final_merged_eeg_fif: bool = True
+                                    should_write_final_merged_eeg_fif: bool = True,
+                                    debug_print: bool = False,
                                                           ):
 
         """ main load function for all XDF files exported by LabRecorder
@@ -1005,7 +1007,7 @@ class LabRecorderXDF:
         assert lab_recorder_output_path.exists()
 
         lab_recorder_xdf_files: List[Path] = list(lab_recorder_output_path.glob('*.xdf'))
-        lab_recorder_xdf_files
+        
         
         if (labRecorder_PostProcessed_path is not None) and should_write_final_merged_eeg_fif:
             labRecorder_PostProcessed_path.mkdir(exist_ok=True)
@@ -1045,7 +1047,7 @@ class LabRecorderXDF:
 
                 eeg_raw = up_convert_raw_obj(eeg_raw)
                 EEGData.set_montage(datasets_EEG=[eeg_raw])
-                
+                eeg_raw.debug_test_annotations_timestamps()
                 _out_eeg_raw.append(eeg_raw)
                 # stream_infos['xdf_dataset_idx'] = a_xdf_file.name ## just the name
                 _out_xdf_stream_infos_df.append(stream_infos)
