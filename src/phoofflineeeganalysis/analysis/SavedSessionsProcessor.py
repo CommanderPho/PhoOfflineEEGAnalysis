@@ -788,7 +788,7 @@ class LabRecorderXDF:
     
     """
     lab_recorder_to_mne_to_type_dict = {'EEG':'eeg', 'ACC':'eeg', 'GYRO':'eeg', 'RAW': 'eeg'} # 'RAW' for eeg quality
-    stream_name_to_modality_dict = {'Epoc X': DataModalityType.EEG, 'Epoc X Motion':DataModalityType.MOTION, 'Epoc X eQuality':None, 'TextLogger': DataModalityType.PHO_LOG_TO_LSL}
+    stream_name_to_modality_dict = {'Epoc X': DataModalityType.EEG, 'Epoc X Motion':DataModalityType.MOTION, 'Epoc X eQuality':None, 'TextLogger': DataModalityType.PHO_LOG_TO_LSL, 'EventBoard': DataModalityType.PHO_LOG_TO_LSL}
 
     datasets: List[mne.io.Raw] = field(default=None)
     
@@ -846,6 +846,8 @@ class LabRecorderXDF:
                 ch_names = ['TextLogger_Markers']
                 ch_types = ['misc']
                 logger_timestamps = stream['time_stamps']
+                logger_clock_times = stream['clock_times']
+
                 logger_strings = [unwrap_single_element_listlike_if_needed(v) for v in stream['time_series']]
                 assert len(logger_timestamps) == len(logger_strings), f"len(logger_timestamps): {len(logger_timestamps)} != len(logger_strings): {len(logger_strings)}"
                 # info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
