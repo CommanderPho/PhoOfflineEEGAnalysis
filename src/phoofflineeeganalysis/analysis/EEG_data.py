@@ -171,9 +171,6 @@ class EEGData:
     
 
 
-
-
-
 class EEGComputations:
     """ 
     
@@ -312,7 +309,7 @@ class EEGComputations:
         return out_dict
 
     @classmethod
-    def raw_spectogram_working(cls, raw: mne.io.Raw, picks=None, nperseg=1024, noverlap=512):
+    def raw_spectogram_working(cls, raw: mne.io.Raw, picks=None, nperseg=1024, noverlap=512, mask_bad_annotated_times: bool=True):
         """Compute continuous Morlet wavelet transform for MNE Raw EEG.
 
         raw: mne.io.Raw
@@ -347,7 +344,20 @@ class EEGComputations:
             picks = mne.pick_types(raw.info, eeg=True, meg=False)
 
         fs: float = raw.info["sfreq"]
-        data = raw.get_data(picks=picks)
+
+        if mask_bad_annotated_times:
+            ## NaN out the bad annoted times (motion epochs, blink artifacts, etc):
+            data, times = raw.get_data(picks=picks, return_times=True)
+            mask = np.ones_like(times, dtype=bool)
+            for ann in raw.annotations:
+                if ann['description'].startswith('BAD_'):
+                    start = ann['onset']
+                    stop = start + ann['duration']
+                    mask &= ~((times >= start) & (times < stop))
+            data[:, ~mask] = np.nan
+        else:
+            data = raw.get_data(picks=picks)
+
         ch_names = deepcopy(raw.info.ch_names)
         # raw = deepcopy(raw)
         # raw.down_convert_to_base_type()

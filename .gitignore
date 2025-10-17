@@ -2,3 +2,13 @@
 holoviews-examples
 **/.ipynb_checkpoints
 examples_datashader
+examples_jupyter/2025-09-30_saved_spectogram.nc
+examples_jupyter/2025-09-30_small_saved_spectogram.nc
+examples_jupyter/2025-10-01_saved_spectogram.nc
+examples_jupyter/2025-10-02_saved_spectogram.nc
+examples_jupyter/2025-10-03_saved_spectogram.nc
+examples_jupyter/2025-10-16_saved_spectogram.nc
+examples_jupyter/saved_on_disk.nc
+examples_jupyter/curves_overlay_lttb.html
+examples_jupyter/holoviz_spectrogram.html
+examples_jupyter/spectrogram_export.html

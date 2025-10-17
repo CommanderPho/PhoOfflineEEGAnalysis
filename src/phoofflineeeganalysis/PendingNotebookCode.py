@@ -7,11 +7,14 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 
+import mne
 from phoofflineeeganalysis.analysis.EEG_data import EEGComputations, EEGData
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from datetime import datetime, timezone, timedelta
 import matplotlib.pyplot as plt
+
+import autoreject # apply_autoreject_filter
 
 
 plt.rcParams["axes.titlesize"] = 8
@@ -32,8 +35,69 @@ plt.rcParams["figure.subplot.wspace"] = 0.0
 plt.rcParams["figure.subplot.hspace"] = 0.0
 
 
+import holoviews as hv # requiired for `plot_holoviews_multichannel_raw`
+import panel as pn # requiired for `plot_holoviews_multichannel_raw`
+# import pooch
+pn.extension('tabulator') # requiired for `plot_holoviews_multichannel_raw`
+hv.extension('bokeh') # requiired for `plot_holoviews_multichannel_raw`
+
+from holoviews.operation.downsample import downsample1d # requiired for `plot_holoviews_multichannel_raw`
+
+
+
+def plot_holoviews_multichannel_raw(a_raw, time_col_name: str='time'):
+    """
+    plots a raw EEG
+
+    Usage:
+        from phoofflineeeganalysis.PendingNotebookCode import plot_holoviews_multichannel_raw
+
+        curves_overlay_lttb = plot_holoviews_multichannel_raw(a_raw, time_col_name = 'times')
+
+    """
+    df = a_raw.to_data_frame()
+    df.set_index(time_col_name, inplace=True) 
+
+    time_dim = hv.Dimension(time_col_name, unit="s") # match the df index name, time_col_name
+    curves = {}
+    for col in df.columns:
+        col_amplitude_dim = hv.Dimension(col, label='amplitude', unit="µV") # map amplitude-labeled dim per chan
+        curves[col] = hv.Curve(df, time_dim, col_amplitude_dim, group='EEG', label=col)
+        # Apply options
+        curves[col] = curves[col].opts(
+            subcoordinate_y=True, # Essential to create vertically stacked plot
+            subcoordinate_scale=3,
+            color="black",
+            bgcolor="whitesmoke",
+            line_width=1,
+            hover_tooltips = [
+                ("type", "$group"),
+                ("channel", "$label"),
+                (time_col_name),
+                ("amplitude")],
+            tools=['xwheel_zoom'],
+            active_tools=["box_zoom"]
+        )
+    curves_overlay = hv.Overlay(curves, kdims=[time_dim, 'Channel'])
+
+    overlay_opts = dict(ylabel="Channel",
+        show_legend=False,
+        padding=0,
+        min_height=600,
+        responsive=True,
+        title="",
+    )
+
+    curves_overlay = curves_overlay.opts(**overlay_opts)
+
+    ### Apply Downsampling
+    curves_overlay_lttb = downsample1d(curves_overlay, algorithm='minmax-lttb')
+    return curves_overlay_lttb
+
+
+
 # @function_attributes(short_name=None, tags=['working', 'spectogram'], input_requires=[], output_provides=[], uses=[], used_by=[], creation_date='2025-10-01 16:58', related_items=[])
-def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path="spectrogram_sessions.html"):
+def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path="spectrogram_sessions.html", plot_indiv_channels: bool = False):
     """ 
     Plot EEG spectrograms with scrollable/zoomable time axis,
     bandpower histograms, and selected channel spectrograms.
@@ -60,19 +124,27 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
             raise ValueError(f"Channels not found in dataset: {missing}")
 
     bands = {
-        "Delta (0.5-4 Hz)": (0.5, 4),
+        "Delta (0.5-4 Hz)": (1.0, 4),
         "Theta (4-8 Hz)": (4, 8),
         "Alpha (8-13 Hz)": (8, 13),
         "Beta (13-30 Hz)": (13, 30),
-        "Gamma (30-64 Hz)": (30, 64)
+        "Gamma (30-58 Hz)": (30, 58)
     }
 
     n_sessions = len(ds_disk.session)
-    n_extra_channels = len(channels_to_select)
+    if plot_indiv_channels:
+        n_extra_channels = len(channels_to_select)
+    else:
+        n_extra_channels = 0
+
     n_extra_cols = 2 * n_extra_channels
     # The column_widths must match the number of columns
     # Always: [0.6, 0.2] for avg, then for each channel: [0.6, 0.2]
-    column_widths = [0.6, 0.2] + [0.6, 0.2] * n_extra_channels
+    # over_time_summary_subplot_width_ratio = [0.6, 0.2]
+    over_time_summary_subplot_width_ratio = [0.95, 0.05]
+    column_widths = over_time_summary_subplot_width_ratio
+    if plot_indiv_channels:
+         column_widths = column_widths + (over_time_summary_subplot_width_ratio * n_extra_channels)
 
     fig = make_subplots(
         rows=n_sessions, cols=(2 + n_extra_cols),
@@ -126,64 +198,74 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
             **row_col_dict,
         )
 
-        # --- 3) Individual channel spectrograms (optional)
-        for ch_idx, ch in enumerate(channels_to_select):
-            # Defensive: ensure channel exists
-            if ch not in ds_disk['channels'].values:
-                raise ValueError(f"Channel '{ch}' not found in dataset channels: {ds_disk['channels'].values}")
+        if plot_indiv_channels:
+            # --- 3) Individual channel spectrograms (optional)
+            for ch_idx, ch in enumerate(channels_to_select):
+                # Defensive: ensure channel exists
+                if ch not in ds_disk['channels'].values:
+                    raise ValueError(f"Channel '{ch}' not found in dataset channels: {ds_disk['channels'].values}")
 
-            ch_spec = data.sel(session=session, channels=ch)
-            Z_ch = 10 * np.log10(ch_spec.values)
-            # Each channel gets two columns: spectrogram, then bandpower
-            ch_col_spec = 3 + 2 * ch_idx
-            ch_col_band = 3 + 2 * ch_idx + 1
+                ch_spec = data.sel(session=session, channels=ch)
+                Z_ch = 10 * np.log10(ch_spec.values)
+                # Each channel gets two columns: spectrogram, then bandpower
+                ch_col_spec = 3 + 2 * ch_idx
+                ch_col_band = 3 + 2 * ch_idx + 1
 
-            row_col_dict = dict(row=i+1, col=ch_col_spec)
-            fig.add_trace(
-                go.Heatmap(
-                    z=Z_ch, x=time, y=freqs,
-                    colorscale="Viridis",
-                    # colorbar=dict(title="Power (dB)") if i == 0 else None,
-                    showscale=False,  # hide duplicate colorbars
-                    name=f"{ch} ({session})"
-                ),
-                **row_col_dict,
-            )
-            # fig.update_layout(title=f'{ch}', **row_col_dict)
-            fig.update_yaxes(title_text=f"{ch}", **row_col_dict)
+                row_col_dict = dict(row=i+1, col=ch_col_spec)
+                fig.add_trace(
+                    go.Heatmap(
+                        z=Z_ch, x=time, y=freqs,
+                        colorscale="Viridis",
+                        # colorbar=dict(title="Power (dB)") if i == 0 else None,
+                        showscale=False,  # hide duplicate colorbars
+                        name=f"{ch} ({session})"
+                    ),
+                    **row_col_dict,
+                )
+                # fig.update_layout(title=f'{ch}', **row_col_dict)
+                fig.update_yaxes(title_text=f"{ch}", **row_col_dict)
 
-            # --- Bandpower histograms for this channel
-            band_means = []
-            for low, high in bands.values():
-                band_data = ch_spec.sel(freqs=slice(low, high)).mean().values
-                band_means.append(10 * np.log10(band_data))
+                # --- Bandpower histograms for this channel
+                band_means = []
+                for low, high in bands.values():
+                    band_data = ch_spec.sel(freqs=slice(low, high)).mean().values
+                    band_means.append(10 * np.log10(band_data))
 
-            row_col_dict = dict(row=i+1, col=ch_col_band)
-            fig.add_trace(
-                go.Bar(
-                    x=band_means, y=list(bands.keys()),
-                    orientation="h", marker_color="steelblue"
-                ),
-                **row_col_dict,
-            )
-            # fig.update_layout(title=f'{ch}', **row_col_dict)
-            fig.update_yaxes(title_text=f"{ch}", **row_col_dict)
+                row_col_dict = dict(row=i+1, col=ch_col_band)
+                fig.add_trace(
+                    go.Bar(
+                        x=band_means, y=list(bands.keys()),
+                        orientation="h", marker_color="steelblue"
+                    ),
+                    **row_col_dict,
+                )
+                # fig.update_layout(title=f'{ch}', **row_col_dict)
+                fig.update_yaxes(title_text=f"{ch}", **row_col_dict)
+        # END if plot_indiv_channels...
 
     # Add clear, large session headers at the start of each row (session)
     total_cols = 2 + n_extra_cols
     for i, session in enumerate(ds_disk.session.values):
+        cognitive_status: str = ds_disk.cognitive_status.loc[session].item() ## these are indexed by 'session'
+        main_label_str: str = f"{session} - {cognitive_status}"
+        print(f'main_label_str: "{main_label_str}"')
         subplot_index = i * total_cols + 1  # axis index for (row=i+1, col=1)
         yaxis_name = "yaxis" if subplot_index == 1 else f"yaxis{subplot_index}"
         # Domain is in figure paper coordinates [y0, y1]
         y_domain = getattr(fig.layout, yaxis_name).domain
         y_top = float(y_domain[1])
         # Place the label just inside the top of the row, at the very left
-        y_pos = y_top - 0.02
+        # y_pos = y_top - 0.02
+        y_pos = y_top
+
         fig.add_annotation(
+            # xref="paper", x=0.0, yref="paper", y=y_pos,
+            # xanchor="left", yanchor="top",
             xref="paper", x=0.0, yref="paper", y=y_pos,
-            text=f"GOOD - {session}",
+            xanchor="left", yanchor="bottom",
+
+            text=main_label_str,
             showarrow=False,
-            xanchor="left", yanchor="top",
             font=dict(size=20, color="black"),
             bgcolor="rgba(255,255,255,0.75)",
             bordercolor="black",
@@ -197,7 +279,7 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
         # width=1800,
         width=8800,
         title="EEG Session Spectrograms with Bandpower + Selected Channels",
-        xaxis_title="Time (s)", yaxis_title="All {len(channels_to_select)} Channels Average\nFrequency (Hz)",
+        xaxis_title="Time (s)", yaxis_title=f"All {len(channels_to_select)} Channels Average\nFrequency (Hz)",
     )
 
     if fig_export_path is not None:
@@ -206,6 +288,62 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
 
     return fig
 
+
+
+
+# include = []
+
+
+
+def apply_autoreject_filter(a_raw, epoch_fixed_duration=3, should_plot: bool = False):
+    """ computes the bad epochs via the autoreject package, using global/local amplitude thresholds determined dynamically
+
+    Usage:
+        from phoofflineeeganalysis.PendingNotebookCode import apply_autoreject_filter
+
+        epochs_cleaned, (epochs, reject_log), ica = apply_autoreject_filter(a_raw, epoch_fixed_duration=3)
+        epochs
+        epochs_cleaned
+
+
+    """
+    a_raw.copy().filter(l_freq=1, h_freq=None)
+    epochs = mne.make_fixed_length_epochs(a_raw, duration=epoch_fixed_duration, preload=True)
+
+    # plot the data
+    # epochs.average().detrend().plot_joint()
+
+
+    # picks = mne.pick_types(a_raw.info, meg=True, eeg=True, stim=False,
+    #                        eog=True, include=include, exclude='bads')
+    # epochs = mne.Epochs(a_raw, events, event_id, tmin, tmax,
+    #                     picks=picks, baseline=(None, 0), preload=True,
+    #                     reject=None, verbose=False, detrend=1)
+
+    ar = autoreject.AutoReject(n_interpolate=[1, 2, 3], random_state=1337, n_jobs=1, verbose=True)
+    ar.fit(epochs[:20])  # fit on a few epochs to save time
+    epochs_cleaned, reject_log = ar.transform(epochs, return_log=True)
+
+    if should_plot:
+        epochs[reject_log.bad_epochs].plot(scalings=dict(eeg=100e-6))
+        reject_log.plot('horizontal')
+
+    # epochs[reject_log.bad_epochs].plot(scalings=dict(eeg=100e-6))
+
+    # compute ICA
+    ica = mne.preprocessing.ICA(random_state=1337)
+    ica.fit(epochs[~reject_log.bad_epochs])
+    exclude = [0,  # blinks
+            2  # saccades
+            ]
+    if should_plot:
+        ica.plot_components(exclude)
+    ica.exclude = exclude
+    if should_plot:
+        ica.plot_overlay(epochs.average(), exclude=ica.exclude)
+    ica.apply(epochs, exclude=ica.exclude)
+
+    return epochs_cleaned, (epochs, reject_log), ica
 
 
 def batch_compute_all_eeg_datasets(eeg_raws, limit_num_items: Optional[int]=None, max_workers: Optional[int]=None):
@@ -664,7 +802,7 @@ def render_all_spectograms_to_high_quality_pdfs(
     annotate_file_info: bool = True,
     debug_print: bool = False,
 ):
-    """
+    """ Known not to work.
     Render spectrograms for each EEG recording into high-quality PDFs suitable for tablet viewing.
 
     Produces either:

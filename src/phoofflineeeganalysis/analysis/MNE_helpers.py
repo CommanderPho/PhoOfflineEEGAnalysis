@@ -100,7 +100,7 @@ class MNEHelpers:
         
         Usage:
 
-            dataset_EEG_df = HistoricalData.convert_df_columns_to_datetime(dataset_EEG_df, dt_col_names=["start_time", "end_time"])
+            a_df, an_annotations_df = MNEHelpers.get_raw_datetime_indexed_df(a_raw=a_raw) # , dt_col_names=["start_time", "end_time"]
             dataset_EEG_df
 
             dataset_MOTION_df = HistoricalData.convert_df_columns_to_datetime(dataset_MOTION_df, dt_col_names=["start_time", "end_time"])
@@ -116,7 +116,7 @@ class MNEHelpers:
                 an_annotations = deepcopy(an_annotations)
                 is_annotation_orig_time_wrong: bool = (an_annotations.orig_time != a_meas_date)
                 if is_annotation_orig_time_wrong:
-                    # print(f'an_annotations.orig_time: {an_annotations.orig_time} != a_meas_date: {a_meas_date}')
+                    print(f'an_annotations.orig_time: {an_annotations.orig_time} != a_meas_date: {a_meas_date}')
                     ## Update the "onset" column so that it's correct:
                     # an_annotations.set_orig_time(a_meas_date)
                     # an_annotations.orig_time = a_meas_date
@@ -139,6 +139,7 @@ class MNEHelpers:
         ## Update the df_time_col_name column so that it's correct:
         for a_df_time_col_name in dt_col_names:
             df_time_col_name_abstimes = pd.to_datetime(a_meas_date) + pd.to_timedelta(a_df[a_df_time_col_name].to_numpy(), unit='s')
+            # df_time_col_name_abstimes = pd.to_datetime(a_meas_date) + pd.to_timedelta((a_df[a_df_time_col_name].to_numpy().astype(float) / 1e9), unit='s').total_seconds()
             a_df[a_df_time_col_name] = df_time_col_name_abstimes
         
         return (a_df, an_annotations_df)
