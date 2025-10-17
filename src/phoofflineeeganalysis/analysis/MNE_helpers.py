@@ -208,6 +208,24 @@ class MNEHelpers:
         return is_moving_annots
 
 
+    @classmethod
+    def determine_best_timedelta_unit_for_annotations(cls, unknown_unit_timestamps: NDArray, stream_approx_dur_sec: float, unit_options_array = ('ns', 'us', 'ms', 's')) -> str:
+        """ determines the best (most natural/most-likely correct) unit for the timedelta timestamps in `logger_timestamps` from the `unit_options_array`, and returns this unit.
+
+        Usage:
+
+            ## INPUTS: logger_timestamps, stream_approx_dur_sec
+            best_found_unit: str = MNEHelpers.determine_best_timedelta_unit_for_annotations(unknown_unit_timestamps=logger_timestamps, stream_approx_dur_sec=stream_approx_dur_sec)
+            converted = pd.to_timedelta(logger_timestamps, unit=best_found_unit) ## starts out in specified unit relative to `file_datetime`
+
+        """
+        a_start_stop_diff: float = (unknown_unit_timestamps[-1] - unknown_unit_timestamps[0])
+        unit_test_array = np.array([pd.to_timedelta(a_start_stop_diff, unit=a_unit).total_seconds() for a_unit in unit_options_array])
+        best_found_unit_idx: int = np.argmin(stream_approx_dur_sec / unit_test_array)
+        assert best_found_unit_idx > -1, f"best_found_unit_idx: {best_found_unit_idx} not found?!"
+        best_found_unit: str = unit_options_array[best_found_unit_idx]
+        return best_found_unit
+
 
     @classmethod
     def merge_annotations(cls, raw: mne.io.BaseRaw, new_annots: mne.Annotations, align_to_Raw_meas_time: bool=False):
