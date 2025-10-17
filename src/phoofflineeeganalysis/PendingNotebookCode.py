@@ -245,6 +245,7 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
                 # fig.update_layout(title=f'{ch}', **row_col_dict)
                 fig.update_yaxes(title_text=f"{ch}", **row_col_dict)
         # END if plot_indiv_channels...
+    ## END for i, session in enumerate(ds_...
 
     # Add clear, large session headers at the start of each row (session)
     total_cols = 2 + n_extra_cols
@@ -275,6 +276,7 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
             borderwidth=1,
             align="left"
         )
+    ## END for i, session in enumerate(ds_disk.sessi...
 
     # Layout adjustments
     fig.update_layout(
@@ -350,7 +352,8 @@ def apply_autoreject_filter(a_raw, epoch_fixed_duration=3, should_plot: bool = F
 
 
 def batch_compute_all_eeg_datasets(eeg_raws, limit_num_items: Optional[int]=None, max_workers: Optional[int]=None):
-    """ 
+    """ Main batch computation function
+
     Compute EEG computations for all datasets in parallel using ThreadPoolExecutor.
 
     Args:
