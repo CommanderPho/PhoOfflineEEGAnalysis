@@ -606,7 +606,7 @@ class DatasetRawExportToConvertedFormatFileMixin:
         # extracted_comments_df = extracted_comments_df.rename(columns={'onset':'time', 'description':'text'}, inplace=False)
         # return extracted_comments_df
 
-    def debug_test_annotations_timestamps(self) -> bool:
+    def debug_test_annotations_timestamps(self, debug_print: bool=True) -> bool:
         annotations_df: pd.DataFrame = self.extract_annotations_df(ignored_comment_descriptions=['BAD_motion', ''])
         if annotations_df is None:
             return True # fine
@@ -618,11 +618,13 @@ class DatasetRawExportToConvertedFormatFileMixin:
         annotation_time_range: np.timedelta64 = (latest_t - earliest_t)
         annotation_time_range = pd.Timedelta(annotation_time_range)
         annotation_time_range_num_secs: float = annotation_time_range.total_seconds()
-        print(f'annotation_time_range: {annotation_time_range}, annotation_time_range_num_secs: {annotation_time_range_num_secs}') # numpy.timedelta64(4852499455000,'ns')
         if (annotation_time_range_num_secs < 1.0):
+            print(f'annotation_time_range: {annotation_time_range}, annotation_time_range_num_secs: {annotation_time_range_num_secs}') # numpy.timedelta64(4852499455000,'ns')
             raise NotImplementedError(f'Annotations all fall within a single second of one another. Suspecting a nano/micro/second formatting issue!\nannotations_df: {annotations_df}')
             return False
         else:
+            if debug_print:
+                print(f'debug_test_annotations_timestamps(...):\n\tlen(annotations_df): {len(annotations_df)}, annotation_time_range: {annotation_time_range}, annotation_time_range_num_secs: {annotation_time_range_num_secs}')
             return True
 
 
