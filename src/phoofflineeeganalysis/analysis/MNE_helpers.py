@@ -219,12 +219,20 @@ class MNEHelpers:
             converted = pd.to_timedelta(logger_timestamps, unit=best_found_unit) ## starts out in specified unit relative to `file_datetime`
 
         """
-        a_start_stop_diff: float = (unknown_unit_timestamps[-1] - unknown_unit_timestamps[0])
-        unit_test_array = np.array([pd.to_timedelta(a_start_stop_diff, unit=a_unit).total_seconds() for a_unit in unit_options_array])
-        best_found_unit_idx: int = np.argmin(stream_approx_dur_sec / unit_test_array)
-        assert best_found_unit_idx > -1, f"best_found_unit_idx: {best_found_unit_idx} not found?!"
-        best_found_unit: str = unit_options_array[best_found_unit_idx]
-        return best_found_unit
+        max_reasonable_timestamp_num_seconds: float = 5 * 60.0 * 60.0 # 5 hours - 18000.0 seconds
+        n_timestamps = len(unknown_unit_timestamps)
+        if n_timestamps < 2:
+            if (unknown_unit_timestamps > max_reasonable_timestamp_num_seconds):
+                return 'ns'
+            else:
+                return 's' ## return seconds
+        else:
+            a_start_stop_diff: float = (unknown_unit_timestamps[-1] - unknown_unit_timestamps[0])
+            unit_test_array = np.array([pd.to_timedelta(a_start_stop_diff, unit=a_unit).total_seconds() for a_unit in unit_options_array])
+            best_found_unit_idx: int = np.argmin(stream_approx_dur_sec / unit_test_array)
+            assert best_found_unit_idx > -1, f"best_found_unit_idx: {best_found_unit_idx} not found?!"
+            best_found_unit: str = unit_options_array[best_found_unit_idx]
+            return best_found_unit
 
 
     @classmethod
