@@ -45,7 +45,7 @@ from holoviews.operation.downsample import downsample1d # requiired for `plot_ho
 
 
 
-def plot_holoviews_multichannel_raw(a_raw, time_col_name: str='time'):
+def plot_holoviews_multichannel_raw(a_raw, time_col_name: str='time', enable_downsampling: bool=True) -> Union[hv.Overlay, hv.DynamicMap]:
     """
     plots a raw EEG
 
@@ -91,8 +91,11 @@ def plot_holoviews_multichannel_raw(a_raw, time_col_name: str='time'):
     curves_overlay = curves_overlay.opts(**overlay_opts)
 
     ### Apply Downsampling
-    curves_overlay_lttb = downsample1d(curves_overlay, algorithm='minmax-lttb')
-    return curves_overlay_lttb
+    if enable_downsampling:
+        curves_overlay_lttb = downsample1d(curves_overlay, algorithm='minmax-lttb')
+        return curves_overlay_lttb
+    else:
+        return curves_overlay
 
 
 
