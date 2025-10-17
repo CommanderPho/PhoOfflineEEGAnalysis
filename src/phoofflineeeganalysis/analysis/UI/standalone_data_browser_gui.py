@@ -205,7 +205,7 @@ class StandaloneResultsBrowserApp(param.Parameterized):
             self.comments_df['time'] = []
         if 'text' not in self.comments_df.columns:
             self.comments_df['text'] = []
-        self.comments_table = pn.widgets.DataFrame(self.comments_df, name='Comments', autosize_mode='fit_viewport', selectable=True, height=200)
+        self.comments_table = pn.widgets.DataFrame(self.comments_df, name='Comments', autosize_mode='fit_viewport', height=200) # , selectable=True
 
         # Wire events
         def _on_session(evt):
