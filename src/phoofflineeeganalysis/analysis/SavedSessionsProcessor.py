@@ -794,7 +794,7 @@ class LabRecorderXDF:
     
     @classmethod
     def init_from_lab_recorder_xdf_file(cls, a_xdf_file: Path):
-        from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
+        from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers, RawArrayExtended, RawExtended, up_convert_raw_obj, up_convert_raw_objects
         from phoofflineeeganalysis.analysis.motion_data import MotionData
 
         # Load .xdf
@@ -861,12 +861,15 @@ class LabRecorderXDF:
                 # [pd.to_timedelta(a_start_stop_diff, unit=a_unit).total_seconds() for a_unit in ('ns', 'us', 'ms', 's')] 
                 # pd.to_timedelta(a_start_stop_diff, unit='ns')
 
+                # meas_date = deepcopy(file_datetime) # deepcopy(a_ds.info['meas_date'])
+
                 # converted = file_datetime + pd.to_timedelta(logger_timestamps, unit="ns") ## starts out in nanoseconds (ns) relative to `file_datetime`
                 converted = file_datetime + pd.to_timedelta(logger_timestamps, unit=best_found_unit) ## starts out in specified unit relative to `file_datetime`
                 converted = converted - file_datetime ## subtract out the `file_datetime` component
                 converted = converted.total_seconds() ## use .total_seconds() to get the value in seconds
                 # raw = mne.Annotations(onset=logger_timestamps, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime.astimezone(timezone.utc))
                 raw = mne.Annotations(onset=converted, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=None) ## set orig_time=None
+                # raw = mne.Annotations(onset=converted, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=meas_date)
                 # raw = mne.Annotations(onset=pd.to_timedelta(logger_timestamps, unit="ns"), duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime)     
                 raws.append(raw)
                 if a_modality is not None:
@@ -899,15 +902,27 @@ class LabRecorderXDF:
         ## set the annotations for the EEG-type modalities
 
         for an_eeg_ds in raws_dict.get(DataModalityType.EEG.value, []):
+            an_eeg_ds = up_convert_raw_obj(an_eeg_ds)
             EEGData.set_montage(datasets_EEG=an_eeg_ds)
             
             # ==================================================================================================================================================================================================================================================================================== #
             # Adding `DataModalityType.PHO_LOG_TO_LSL` before `DataModalityType.MOTION` annotations works, while the opposite order seems to lose the MOTION annotations                                                                                                                           #
             # ==================================================================================================================================================================================================================================================================================== #
             for an_annotation_ds in raws_dict.get(DataModalityType.PHO_LOG_TO_LSL.value, []):
+                num_annotations_to_add: int = len(an_annotation_ds)
+                before_add_num_annotations: int = len(an_eeg_ds.annotations)
+
                 # meas_date = deepcopy(an_eeg_ds.info.get('meas_date'))
                 # MNEHelpers.merge_annotations(raw=an_eeg_ds, new_annots=an_annotation_ds, align_to_Raw_meas_time=True)
-                MNEHelpers.merge_annotations(raw=an_eeg_ds, new_annots=an_annotation_ds, align_to_Raw_meas_time=False)        
+                MNEHelpers.merge_annotations(raw=an_eeg_ds, new_annots=an_annotation_ds, align_to_Raw_meas_time=False)
+                after_add_num_annotations: int = len(an_eeg_ds.annotations)
+
+                actually_added_annotations: int = (after_add_num_annotations - before_add_num_annotations)
+                if (actually_added_annotations < num_annotations_to_add):
+                    missing_annotations: int = num_annotations_to_add - actually_added_annotations
+                    print(f'failed to add {missing_annotations} annotations.\n\tnum_annotations_to_add: {num_annotations_to_add}, before_add_num_annotations: {before_add_num_annotations}, after_add_num_annotations: {after_add_num_annotations} ')
+                    
+
                 # if (an_eeg_ds.annotations is None) or (len(an_eeg_ds.annotations) < 1):
                 #     # an_eeg_ds.annotations = an_annotation_ds
                 #     an_eeg_ds.set_annotations(an_annotation_ds)
@@ -916,15 +931,25 @@ class LabRecorderXDF:
                 #     an_eeg_ds.set_annotations(an_annotation_ds)
                 #     # an_eeg_ds.set_annotation(an_annotation_ds)
                 # an_eeg_ds.annotations
+            ## END for an_annotation_ds in raws_d...
+            
+            if not an_eeg_ds.debug_test_annotations_timestamps():
+                raise
 
             # ==================================================================================================================================================================================================================================================================================== #
             # Add Motion Annotations                                                                                                                                                                                                                                                               #
             # ==================================================================================================================================================================================================================================================================================== #
             for an_motion_raw_ds in raws_dict.get(DataModalityType.MOTION.value, []):
 
-                motion_annots: mne.Annotations = MotionData.find_high_accel_periods(an_motion_raw_ds, should_set_bad_period_annotations=True)
-
+                # motion_annots: mne.Annotations = MotionData.find_high_accel_periods(an_motion_raw_ds, should_set_bad_period_annotations=True)
+                motion_annots: mne.Annotations = MotionData.find_high_accel_periods(an_motion_raw_ds, should_set_bad_period_annotations=False) # should_set_bad_period_annotations=False must be False so it doesn't overwrite existing annotations
                 MNEHelpers.merge_annotations(raw=an_eeg_ds, new_annots=motion_annots, align_to_Raw_meas_time=True)
+            ## END for an_motion_raw_ds in raws_...
+
+
+            if not an_eeg_ds.debug_test_annotations_timestamps():
+                raise
+
         ## END for an_eeg_ds in raws_dict.get(DataModalityType.EEG.value, [])...
         
 
