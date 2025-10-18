@@ -781,12 +781,23 @@ class XDFDataStreamAccessor(object):
         return self._obj
 
 
+# def readable_dt_str(a_dt: datetime) -> str:
+#     """ returns the datetime in a readible string format """
+#     return str(a_dt.astimezone(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %I:%M:%S %p"))
+
+def readable_dt_str(a_dt: datetime, tz: pytz.timezone = pytz.timezone("US/Eastern")) -> str:
+    """ returns the datetime in a readible string format """
+    return str(a_dt.astimezone(tz).strftime("%Y-%m-%d %I:%M:%S %p"))
+
+def from_readable_dt_str(a_dt_str: str, tz: pytz.timezone = pytz.timezone("US/Eastern")) -> datetime:
+    """ Inverse of `readable_dt_str(...)` """
+    return datetime.strptime(a_dt_str, "%Y-%m-%d %I:%M:%S %p").replace(tzinfo=tz)
 
 
 
 @define(slots=False)
 class LabRecorderXDF:
-    """ 
+    """ Loads a `.xdf` file saved by LabRecorder which may contain one or more LSL Streams of differing types
     
     from phoofflineeeganalysis.analysis.SavedSessionsProcessor import LabRecorderXDF, unwrap_single_element_listlike_if_needed
     
@@ -798,15 +809,118 @@ class LabRecorderXDF:
     
     @classmethod
     def init_from_lab_recorder_xdf_file(cls, a_xdf_file: Path):
+        """
+
+            Conclusions: `stream_clock_times` is not really needed if auto-sync is working.
+
+
+            =========================================
+            With `synchronize_clocks=True`:
+                trying to process XDF file 0/1: "E:/Dropbox (Personal)/Databases/UnparsedData/LabRecorderStudies/sub-P001/LabRecorder_Apogee_2025-10-18T192330.926Z_eeg.xdf"...
+                file_datetime: 2025-10-18 03:23:30 PM
+                ======== STREAM "TextLogger":
+                    created_at_dt: 2025-10-18 03:23:30 PM
+                    first_timestamp_dt: 2025-10-18 03:23:30 PM
+                    last_timestamp_dt: 2025-10-18 03:23:30 PM
+                    FOUND CUSTOM TIMESTAMP SYNC KEY: "recording_start_lsl_local_offset_seconds": 309833.9379807
+                    FOUND CUSTOM TIMESTAMP SYNC KEY: "recording_start_datetime": 2025-10-18 15:18:52-04:56
+                    stream_approx_dur_sec: 19.940502
+                    stream_timestamps: [310118.9797208478, 310132.17171209387, 310138.9202364168]
+                    stream_clock_times: [310117.99792570004, 310122.99849055, 310127.99873414997, 310132.99948935, 310137.99964735, 310143.0005398, 310148.00089784997, 310153.00175355]
+                    post-zeroed stream_timestamps: [0.0, 13.191991246072575, 19.940515569003765]
+                    post-zeroed stream_clock_times: [0.0, 5.000564849935472, 10.000808449927717, 15.001563649973832, 20.00172164995456, 25.00261409993982, 30.00297214993043, 35.0038278499851]
+                ======== STREAM "EventBoard":
+                    created_at_dt: 2025-10-18 03:23:30 PM
+                    first_timestamp_dt: 2025-10-18 03:23:30 PM
+                    last_timestamp_dt: 2025-10-18 03:23:30 PM
+                    FOUND CUSTOM TIMESTAMP SYNC KEY: "recording_start_lsl_local_offset_seconds": 309833.9379807
+                    FOUND CUSTOM TIMESTAMP SYNC KEY: "recording_start_datetime": 2025-10-18 15:18:52-04:56
+                    stream_approx_dur_sec: 0.0
+                    stream_timestamps: [310141.53154871357]
+                    stream_clock_times: [310117.99793914997, 310122.99851445, 310127.99872775003, 310132.99950185, 310137.99965555, 310143.00056144997, 310148.00089795, 310153.0017462]
+                    post-zeroed stream_timestamps: [0.0]
+                    post-zeroed stream_clock_times: [0.0, 5.0005753000150435, 10.000788600067608, 15.001562700024806, 20.001716400031, 25.00262230000226, 30.002958800061606, 35.00380705005955]
+                ======== STREAM "Epoc X Motion":
+                    created_at_dt: 2025-10-18 03:23:30 PM
+                    first_timestamp_dt: 2025-10-18 03:23:30 PM
+                    last_timestamp_dt: 2025-10-18 03:23:30 PM
+                    stream_approx_dur_sec: 39.980819
+                    stream_timestamps: [310112.3528809373, 310112.38261473324, 310112.4146451288, 310112.44568922446, 310112.4766869202,..., ]
+                    stream_clock_times: [204.484430350014, 209.48498810001183, 214.4852262000204, 219.48597295000218, 224.4861887000734, 229.48706944996957, 234.48741724999854, 239.4882807499962]
+                    post-zeroed stream_timestamps: [0.0, 0.02973379596369341, 0.061764191545080394, 0.09280828718328848, 0.12380598293384537, 0.15590557851828635, 0.1929814734030515, 0.21782896999502555, 0.2487867656745948, ..., ]
+                    post-zeroed stream_clock_times: [0.0, 5.000557749997824, 10.000795850006398, 15.00154259998817, 20.00175835005939, 25.00263909995556, 30.002986899984535, 35.003850399982184]
+                ======== STREAM "Epoc X":
+                    created_at_dt: 2025-10-18 03:23:30 PM
+                    first_timestamp_dt: 2025-10-18 03:23:30 PM
+                    last_timestamp_dt: 2025-10-18 03:23:30 PM
+                    stream_approx_dur_sec: 39.989998
+                    stream_timestamps: [310112.34278103936, 310112.3521599422, 310112.3596535444, 310112.36563644616, 310112.3766195494, 310112.3816435509, 310112.3937489544, 310112.3987795559, 310112.4097387591, 310112.4137093603, ..., ]
+                    stream_clock_times: [204.4844580499921, 209.4850055000279, 214.48526310001034, 219.48599920002744, 224.48616700002458, 229.48707915004343, 234.48742110002786, 239.4882879499928]
+                    post-zeroed stream_timestamps: [0.0, 0.009378902846947312, 0.01687250501709059, 0.022855406801681966, 0.03383851004764438, 0.03886251151561737, 0.05096791504183784, 0.05599851656006649, 0.06695771974045783, ..., ]
+                    post-zeroed stream_clock_times: [0.0, 5.0005474500358105, 10.000805050018243, 15.001541150035337, 20.00170895003248, 25.00262110005133, 30.00296305003576, 35.00382990000071]
+
+                =========================================
+                With `synchronize_clocks=False`:
+                    limiting to included_xdf_file_names: ['LabRecorder_Apogee_2025-10-18T192330.926Z_eeg.xdf']...
+                    limited to 1/49 files
+                    trying to process XDF file 0/1: "E:/Dropbox (Personal)/Databases/UnparsedData/LabRecorderStudies/sub-P001/LabRecorder_Apogee_2025-10-18T192330.926Z_eeg.xdf"...
+                    file_datetime: 2025-10-18 03:23:30 PM
+                    ======== STREAM "TextLogger":
+                        created_at_dt: 2025-10-18 03:23:30 PM
+                        first_timestamp_dt: 2025-10-18 03:23:30 PM
+                        last_timestamp_dt: 2025-10-18 03:23:30 PM
+                        FOUND CUSTOM TIMESTAMP SYNC KEY: "recording_start_lsl_local_offset_seconds": 309833.9379807
+                        FOUND CUSTOM TIMESTAMP SYNC KEY: "recording_start_datetime": 2025-10-18 15:18:52-04:56
+                        stream_approx_dur_sec: 19.940502
+                        stream_timestamps: [310118.9797418, 310132.1717244, 310138.9202443]
+                        stream_clock_times: [310117.99792570004, 310122.99849055, 310127.99873414997, 310132.99948935, 310137.99964735, 310143.0005398, 310148.00089784997, 310153.00175355]
+                        post-zeroed stream_timestamps: [0.0, 13.191982600023039, 19.940502499986906]
+                        post-zeroed stream_clock_times: [0.0, 5.000564849935472, 10.000808449927717, 15.001563649973832, 20.00172164995456, 25.00261409993982, 30.00297214993043, 35.0038278499851]
+                    ======== STREAM "EventBoard":
+                        created_at_dt: 2025-10-18 03:23:30 PM
+                        first_timestamp_dt: 2025-10-18 03:23:30 PM
+                        last_timestamp_dt: 2025-10-18 03:23:30 PM
+                        FOUND CUSTOM TIMESTAMP SYNC KEY: "recording_start_lsl_local_offset_seconds": 309833.9379807
+                        FOUND CUSTOM TIMESTAMP SYNC KEY: "recording_start_datetime": 2025-10-18 15:18:52-04:56
+                        stream_approx_dur_sec: 0.0
+                        stream_timestamps: [310141.5315568]
+                        stream_clock_times: [310117.99793914997, 310122.99851445, 310127.99872775003, 310132.99950185, 310137.99965555, 310143.00056144997, 310148.00089795, 310153.0017462]
+                        post-zeroed stream_timestamps: [0.0]
+                        post-zeroed stream_clock_times: [0.0, 5.0005753000150435, 10.000788600067608, 15.001562700024806, 20.001716400031, 25.00262230000226, 30.002958800061606, 35.00380705005955]
+                    ======== STREAM "Epoc X Motion":
+                        created_at_dt: 2025-10-18 03:23:30 PM
+                        first_timestamp_dt: 2025-10-18 03:23:30 PM
+                        last_timestamp_dt: 2025-10-18 03:23:30 PM
+                        stream_approx_dur_sec: 39.980819
+                        stream_timestamps: [198.8393982, 198.869132, 198.9011624, 198.9322065, 198.9632042, 198.9953038, 199.0323797, 199.0572272, 199.088185, 199.1191771, 199.1532168, 199.1831693, 199.2131749, 199.250184, 199.2752947, ..., ]
+                        stream_clock_times: [204.484430350014, 209.48498810001183, 214.4852262000204, 219.48597295000218, 224.4861887000734, 229.48706944996957, 234.48741724999854, 239.4882807499962]
+                        post-zeroed stream_timestamps: [0.0, 0.029733800000002475, 0.06176419999999894, 0.09280830000000151, 0.12380600000000186, 0.15590559999998277, 0.19298150000000192, 0.21782899999999472, 0.24878680000000486, 0.2797788999999966, ..., ]
+                        post-zeroed stream_clock_times: [0.0, 5.000557749997824, 10.000795850006398, 15.00154259998817, 20.00175835005939, 25.00263909995556, 30.002986899984535, 35.003850399982184]
+                    ======== STREAM "Epoc X":
+                        created_at_dt: 2025-10-18 03:23:30 PM
+                        first_timestamp_dt: 2025-10-18 03:23:30 PM
+                        last_timestamp_dt: 2025-10-18 03:23:30 PM
+                        stream_approx_dur_sec: 39.989998
+                        stream_timestamps: [198.829322, 198.8387009, 198.8461945, 198.8521774, 198.8631605, 198.8681845, 198.8802899, 198.8853205, 198.8962797, 198.9002503, 198.9123016, 198.9162398, 198.922399, 198.9312574, 198.9392109, 198.9472146, 198.9552784, ..., ]
+                        stream_clock_times: [204.4844580499921, 209.4850055000279, 214.48526310001034, 219.48599920002744, 224.48616700002458, 229.48707915004343, 234.48742110002786, 239.4882879499928]
+                        post-zeroed stream_timestamps: [0.0, 0.009378900000001522, 0.016872500000005175, 0.022855399999997417, 0.03383850000000166, 0.03886250000002178, 0.05096790000001761, 0.05599850000001538, 0.06695770000001744, 0.07092830000001982, 0.08297960000001581, ..., ]
+                        post-zeroed stream_clock_times: [0.0, 5.0005474500358105, 10.000805050018243, 15.001541150035337, 20.00170895003248, 25.00262110005133, 30.00296305003576, 35.00382990000071]
+                    n_unique_xdf_datasets: 1
+        """
         from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers, RawArrayExtended, RawExtended, up_convert_raw_obj, up_convert_raw_objects
         from phoofflineeeganalysis.analysis.motion_data import MotionData
 
         # Load .xdf
-        streams, header = pyxdf.load_xdf(a_xdf_file)
-        file_datetime = datetime.strptime(header['info']['datetime'][0], "%Y-%m-%dT%H:%M:%S%z") # '2025-09-11T17:04:20-0400' -> datetime.datetime(2025, 9, 11, 17, 4, 20, tzinfo=datetime.timezone(datetime.timedelta(days=-1, seconds=72000)))           
+        # streams, header = pyxdf.load_xdf(a_xdf_file)
+        # streams, header = pyxdf.load_xdf(a_xdf_file, synchronize_clocks=False, handle_clock_resets=False, dejitter_timestamps=False, verbose=True) ## disabled sync since it wasn't working anyway
+        streams, header = pyxdf.load_xdf(a_xdf_file, synchronize_clocks=True, handle_clock_resets=True, dejitter_timestamps=False, verbose=True) ## disabled sync since it wasn't working anyway
+
+        file_datetime: datetime = datetime.strptime(header['info']['datetime'][0], "%Y-%m-%dT%H:%M:%S%z") # '2025-09-11T17:04:20-0400' -> datetime.datetime(2025, 9, 11, 17, 4, 20, tzinfo=datetime.timezone(datetime.timedelta(days=-1, seconds=72000)))           
         file_datetime = file_datetime.astimezone(timezone.utc)
              
-        print(f'file_datetime: {file_datetime.astimezone(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %I:%M:%S %p")}')
+        print(f'file_datetime: {readable_dt_str(file_datetime)}')
+
+        ## claims that ['time_stamps'] are pre-synchronized across streams
 
         num_streams: int = len(streams)
         
@@ -823,6 +937,8 @@ class LabRecorderXDF:
                 a_modality = a_modality.value
             if a_modality not in raws_dict:
                 raws_dict[a_modality] = []
+
+            print(f'======== STREAM "{name}":')
             
             fs = float(stream['info']['nominal_srate'][0])
             stream_info_dict: Dict = {'name': name, 'fs': fs}
@@ -830,7 +946,7 @@ class LabRecorderXDF:
             sample_count: int = stream['footer']['info']['sample_count'][0]
 
             if len(stream['time_series']) == 0:
-                print(f'WARN: skipping empty stream: "{name}"')
+                print(f'\tWARN: skipping empty stream: "{name}"')
                 continue ## skip this stream
             else:
                 n_samples, n_channels = np.shape(stream['time_series'])
@@ -857,8 +973,32 @@ class LabRecorderXDF:
                         a_ts_value_dt: datetime = file_datetime + pd.Timedelta(nanoseconds=a_ts_value)
                         a_dt_key: str = f'{a_key}_dt'
                         stream_info_dict[a_dt_key] = a_ts_value_dt
-                        print(f'\t{a_dt_key}: {a_ts_value_dt.astimezone(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %I:%M:%S %p")}')
+                        print(f'\t{a_dt_key}: {readable_dt_str(a_ts_value_dt)}')
                         
+
+                ## try to get the special marker timestamp helpers:
+                desc_info_dict = dict(stream['info'].get('desc', [{}])[0])
+                # assert 'recording_start_lsl_local_offset_seconds' in desc_info_dict
+                assert len(desc_info_dict) > 0
+                custom_timestamp_keys = {'recording_start_lsl_local_offset_seconds': (lambda v: float(v)), 'recording_start_datetime': (lambda v: from_readable_dt_str(v))}
+                for a_key, a_value_type_convert_fn in custom_timestamp_keys.items():
+                    ## NOTE IMPORTANT: this operates on `desc_info_dict` dict, not the same `stream_info_dict` as above
+                    if desc_info_dict.get(a_key, None) is not None:
+                        a_ts_value = a_value_type_convert_fn(unwrap_single_element_listlike_if_needed(desc_info_dict[a_key])) # ['169993.1081304000']
+                        # a_ts_value_dt: datetime = file_datetime + pd.Timedelta(nanoseconds=a_ts_value)
+                        stream_info_dict[a_key] = a_ts_value ## In-contrast to what we get the data from, we SET the data to `stream_info_dict` just as above (flattening)
+                        print(f'\t FOUND CUSTOM TIMESTAMP SYNC KEY: "{a_key}": {a_ts_value}')
+
+
+            # self.outlet.get_info().get_child_value("recording_start_lsl_local_offset_seconds")
+            # self.outlet.get_info().get_child_value("recording_start_datetime")
+            # if self.outlet.get_info().get_child_value("recording_start_lsl_local_offset_seconds") is not None:
+            #     self.recording_start_lsl_local_offset = self.outlet.get_info().get_child_value("recording_start_lsl_local_offset_seconds")
+            # if self.outlet.get_info().get_child_value("recording_start_datetime") is not None:
+            #     self.recording_start_datetime = self.outlet.get_info().get_child_value("recording_start_datetime")
+            # else:
+            #     self.recording_start_datetime = None
+            
 
 
                 ############ pd.TimeDelta unit: `nanoseconds`
@@ -900,30 +1040,54 @@ class LabRecorderXDF:
                 ## Process Data:
                 # stream_info_dict
 
+                stream_first_timestamp: float = float(stream['footer']['info']['first_timestamp'][0]) # 29605.4462984
+                stream_last_timestamp: float = float(stream['footer']['info']['last_timestamp'][0]) # 30373.1166288
+
+                stream_first_timestamp = pd.Timedelta(seconds=stream_first_timestamp)
+                stream_last_timestamp = pd.Timedelta(seconds=stream_last_timestamp)
+
+                # stream_num_samples: int = int(stream['footer']['info']['sample_count'][0])
+                stream_approx_dur_sec: float = (stream_last_timestamp - stream_first_timestamp).total_seconds()
+                print(f'\tstream_approx_dur_sec: {stream_approx_dur_sec}')
+                # best_found_unit: str = MNEHelpers.determine_best_timedelta_unit_for_annotations(unknown_unit_timestamps=logger_timestamps, stream_approx_dur_sec=stream_approx_dur_sec)
+                # best_found_unit: str = 'ns' ## always nanoseconds
+                best_found_unit: str = 'ms' ## always nanoseconds
+                # print(f'\tbest_found_unit: "{best_found_unit}"')
+                
+
+                stream_timestamps = deepcopy(np.array(stream['time_stamps']))
+                stream_clock_times = deepcopy(np.array(stream['clock_times']))
+
+                print(f'\tstream_timestamps: {stream_timestamps.tolist()}')
+                print(f'\tstream_clock_times: {stream_clock_times.tolist()}')
+
+                if len(stream_timestamps) > 0:
+                    stream_timestamps = stream_timestamps - stream_timestamps[0] ## subtract out the first timestamp
+                if len(stream_clock_times) > 0:
+                    stream_clock_times = stream_clock_times - stream_clock_times[0] ## subtract out the first timestamp
+                
+                ## post-zeroed:
+                print(f'\tpost-zeroed stream_timestamps: {stream_timestamps.tolist()}')
+                print(f'\tpost-zeroed stream_clock_times: {stream_clock_times.tolist()}')
+
+                
+
                 if (fs == 0):  
                     # irregular event streams
                     ch_names = ['TextLogger_Markers']
                     ch_types = ['misc']
-                    logger_timestamps = stream['time_stamps']
-                    logger_clock_times = stream['clock_times']
-
-                    if len(logger_timestamps) > 0:
-                        logger_timestamps = logger_timestamps - logger_timestamps[0] ## subtract out the first timestamp
-                    if len(logger_clock_times) > 0:
-                        logger_clock_times = logger_clock_times - logger_clock_times[0] ## subtract out the first timestamp
-                    
-
                     logger_strings = [unwrap_single_element_listlike_if_needed(v) for v in stream['time_series']]
-                    assert len(logger_timestamps) == len(logger_strings), f"len(logger_timestamps): {len(logger_timestamps)} != len(logger_strings): {len(logger_strings)}"
+                    assert len(stream_timestamps) == len(logger_strings), f"len(stream_timestamps): {len(stream_timestamps)} != len(logger_strings): {len(logger_strings)}"
                     # info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
                     # data = np.array(stream['time_series']).T
                     # raw = mne.io.RawArray(data, info)
 
                     ## check
                     assert ((stream_info_dict['created_at_dt'] - file_datetime).total_seconds() < (90.0 * 60.0)) # should be less than 10 seconds between the file start and the logging stream (usually...)
-                    logger_clock_times = [(file_datetime + pd.Timedelta(nanoseconds=v)) for v in logger_clock_times]
+                    # stream_clock_times = [(file_datetime + pd.Timedelta(nanoseconds=v)) for v in stream_clock_times]
+                    stream_clock_times = [(file_datetime + pd.Timedelta(nanoseconds=v)) for v in stream_clock_times]
 
-                    # logger_timestamps = [(logger_clock_times[0] + pd.Timedelta(nanoseconds=v)) for v in logger_timestamps]
+                    # stream_timestamps = [(logger_clock_times[0] + pd.Timedelta(nanoseconds=v)) for v in stream_timestamps]
 
                     # pd. logger_timestamps
                     # stream_first_timestamp: float = float(stream['footer']['info']['first_timestamp'][0])
@@ -931,18 +1095,7 @@ class LabRecorderXDF:
                     # # stream_num_samples: int = int(stream['footer']['info']['sample_count'][0])
                     # stream_approx_dur_sec: float = stream_last_timestamp - stream_first_timestamp
 
-                    stream_first_timestamp: float = float(stream['footer']['info']['first_timestamp'][0]) # 29605.4462984
-                    stream_last_timestamp: float = float(stream['footer']['info']['last_timestamp'][0]) # 30373.1166288
 
-                    stream_first_timestamp = pd.Timedelta(seconds=stream_first_timestamp)
-                    stream_last_timestamp = pd.Timedelta(seconds=stream_last_timestamp)
-
-                    # stream_num_samples: int = int(stream['footer']['info']['sample_count'][0])
-                    stream_approx_dur_sec: float = stream_last_timestamp - stream_first_timestamp
-                    # best_found_unit: str = MNEHelpers.determine_best_timedelta_unit_for_annotations(unknown_unit_timestamps=logger_timestamps, stream_approx_dur_sec=stream_approx_dur_sec)
-                    # best_found_unit: str = 'ns' ## always nanoseconds
-                    best_found_unit: str = 'ms' ## always nanoseconds
-                    print(f'\tbest_found_unit: "{best_found_unit}"')
                     # [pd.to_timedelta(a_start_stop_diff, unit=a_unit).total_seconds() for a_unit in ('ns', 'us', 'ms', 's')] 
                     # pd.to_timedelta(a_start_stop_diff, unit='ns')
 
@@ -953,10 +1106,10 @@ class LabRecorderXDF:
 
                     # logger_timestamps = [(logger_clock_times[0] + pd.Timedelta(nanoseconds=v)) for v in logger_timestamps]
 
-                    converted_dt = [(file_datetime + pd.to_timedelta(v, unit=best_found_unit)) for v in logger_timestamps]
+                    converted_dt = [(file_datetime + pd.to_timedelta(v, unit=best_found_unit)) for v in stream_timestamps]
                     # converted = [(v - file_datetime).total_seconds() for v in converted]
 
-                    a_raw_df: pd.DataFrame = pd.DataFrame(dict(onset=converted_dt, duration=([0.0] * len(logger_timestamps)), description=logger_strings))
+                    a_raw_df: pd.DataFrame = pd.DataFrame(dict(onset=converted_dt, duration=([0.0] * len(stream_timestamps)), description=logger_strings))
                     all_annotations.append(a_raw_df)
 
                     converted = [(v - file_datetime).total_seconds() for v in converted_dt]
@@ -965,7 +1118,7 @@ class LabRecorderXDF:
                     # converted = converted - file_datetime ## subtract out the `file_datetime` component
                     # converted = converted.total_seconds() ## use .total_seconds() to get the value in seconds
                     # raw = mne.Annotations(onset=logger_timestamps, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime.astimezone(timezone.utc))
-                    raw = mne.Annotations(onset=converted, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=None) ## set orig_time=None
+                    raw = mne.Annotations(onset=converted, duration=([0.0] * len(stream_timestamps)), description=logger_strings, orig_time=None) ## set orig_time=None
                     # A POSIX Timestamp, datetime or a tuple containing the timestamp as the first element and microseconds as the second element. Determines the starting time of annotation acquisition. If None (default), starting time is determined from beginning of raw data acquisition. In general, raw.info['meas_date'] (or None) can be used for syncing the annotations with raw data if their acquisition is started at the same time. If it is a string, it should conform to the ISO8601 format. More precisely to this '%%Y-%%m-%%d %%H:%%M:%%S.%%f' particular case of the ISO8601 format where the delimiter between date and time is ' '.
                     # raw = mne.Annotations(onset=converted, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime)
                     # raw = mne.Annotations(onset=pd.to_timedelta(logger_timestamps, unit="ns"), duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime)     
@@ -992,7 +1145,7 @@ class LabRecorderXDF:
                     info['description'] = a_xdf_file.as_posix()
                     info['device_info'] = {'type':'USB', 'model':'EpocX', 'serial': '', 'site':'pho'} # #TODO 2025-09-22 08:51: - [ ] Add Hostname<USB> or Hostname<BLE>
                     
-                    raw = mne.io.RawArray(data, info)
+                    raw = mne.io.RawArray(data, info) ## also have , first_samp=0
 
                     ## UPDATE `raws` and `raws_dict` with the new raw object:
                     raws.append(raw)
