@@ -243,6 +243,21 @@ class MNEHelpers:
         Converts absolute onset values into relative if needed.
         Handles empty or None annotations gracefully.
         """
+        n_existing_annots: int = len(raw.annotations.onset)
+        n_new_annots: int = len(new_annots.onset)
+
+        expected_merged: int = (n_existing_annots + n_new_annots)
+        print(f'\tn_existing_annots: {n_existing_annots}, \tn_new_annots: {n_new_annots}, \texpected_merged: {expected_merged}')
+
+        def _subfn_post_annot_counts(a_raw):
+            """ captures: n_existing_annots """
+
+            n_actual_post_annots: int = len(a_raw.annotations.onset)
+            print(f'\tn_actual_post_annots: {n_actual_post_annots}')
+            assert (n_actual_post_annots >= n_existing_annots)
+            assert (n_actual_post_annots == (n_existing_annots + n_new_annots)), f"(n_existing_annots + n_new_annots): {(n_existing_annots + n_new_annots)}"
+            
+
         if (new_annots is None) or (len(new_annots) == 0):
             return raw  # nothing to merge
 
@@ -312,6 +327,7 @@ class MNEHelpers:
             # If no existing annotations, just set new ones
             if (existing_annotations is None) or (len(existing_annotations) == 0):
                 raw = raw.set_annotations(new_annots)
+                _subfn_post_annot_counts(raw)
                 return raw
 
             # Align orig_time
@@ -319,6 +335,7 @@ class MNEHelpers:
                 if (eeg_existing_annotations_orig_time is None) and (new_orig_time is not None):
                     # keep new_annots as-is, raw will adopt its orig_time
                     raw = raw.set_annotations(existing_annotations + new_annots)
+                    _subfn_post_annot_counts(raw)
                     return raw
                 elif (eeg_existing_annotations_orig_time is not None) and (new_orig_time is not None):
                     # compute shift between two origins
@@ -335,6 +352,10 @@ class MNEHelpers:
                                                 orig_time=eeg_existing_annotations_orig_time)
 
             raw = raw.set_annotations(existing_annotations + new_annots)
+
+
+        _subfn_post_annot_counts(raw)
+        
 
         return raw
 

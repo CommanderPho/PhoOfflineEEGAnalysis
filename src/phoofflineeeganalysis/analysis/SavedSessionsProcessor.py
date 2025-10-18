@@ -1271,7 +1271,7 @@ class LabRecorderXDF:
                 # an_all_annotations_df
                 # [v.to_data_frame('ms') for v in an_all_annotations]
                 final_annots = mne.Annotations(onset=an_all_annotations_df['onset'].to_numpy(), duration=an_all_annotations_df['duration'].to_numpy(), description=an_all_annotations_df['description'].to_numpy(), orig_time=None) ## set orig_time=None
-                MNEHelpers.merge_annotations(raw=an_eeg_ds, new_annots=final_annots, align_to_Raw_meas_time=True)
+                an_eeg_ds = MNEHelpers.merge_annotations(raw=an_eeg_ds, new_annots=final_annots, align_to_Raw_meas_time=False)
                 if not an_eeg_ds.debug_test_annotations_timestamps():
                     raise
             ## END if len(an_all_annotations) > 0...
