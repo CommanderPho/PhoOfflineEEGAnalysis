@@ -69,6 +69,7 @@ dependencies = [
     "netcdf4>=1.7.2",
     "tsdownsample>=0.1.4.1",
     "holonote>=0.2.1",
+    "pytz>=2025.2",
 ]
 
 [project.scripts]

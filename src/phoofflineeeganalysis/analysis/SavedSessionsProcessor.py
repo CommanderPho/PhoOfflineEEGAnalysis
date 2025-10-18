@@ -1,6 +1,9 @@
 import time
 import re
 from datetime import datetime, timezone
+import pytz
+# from pytz import timezone
+
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import dill
@@ -22,6 +25,8 @@ from copy import deepcopy
 import mne
 
 from mne.io import read_raw
+# from phoofflineeeganalysis.tzinfo_examples import Eastern
+
 
 datasets = []
 mne.viz.set_browser_backend("Matplotlib")
@@ -49,7 +54,6 @@ set_log_level("WARNING")
 from enum import Enum, auto
 
 import pyxdf
-from datetime import datetime, timezone
 import mne
 import numpy as np
 from benedict import benedict
@@ -802,6 +806,8 @@ class LabRecorderXDF:
         file_datetime = datetime.strptime(header['info']['datetime'][0], "%Y-%m-%dT%H:%M:%S%z") # '2025-09-11T17:04:20-0400' -> datetime.datetime(2025, 9, 11, 17, 4, 20, tzinfo=datetime.timezone(datetime.timedelta(days=-1, seconds=72000)))           
         file_datetime = file_datetime.astimezone(timezone.utc)
              
+        print(f'file_datetime: {file_datetime.astimezone(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %I:%M:%S %p")}')
+
         num_streams: int = len(streams)
         
         stream_infos = []
@@ -810,7 +816,6 @@ class LabRecorderXDF:
 
         all_annotations = []
 
-        
         for stream in streams:
             name: str = stream['info']['name'][0]
             a_modality: DataModalityType = cls.stream_name_to_modality_dict.get(name, None)
@@ -825,121 +830,169 @@ class LabRecorderXDF:
             sample_count: int = stream['footer']['info']['sample_count'][0]
 
             if len(stream['time_series']) == 0:
-                print(f'WARN: skipping emptry stream: "{name}"')
+                print(f'WARN: skipping empty stream: "{name}"')
                 continue ## skip this stream
-
-            n_samples, n_channels = np.shape(stream['time_series'])
-            stream_info_dict.update(**{'n_samples': n_samples, 'n_channels': n_channels})
-            ## stream info keys:
-            for a_key in ('stream_id', 'effective_srate', 'hostname', 'source_id', 'channel_format', 'type', 'created_at'):
-                a_value = stream['info'].get(a_key, None)
-                a_value = unwrap_single_element_listlike_if_needed(a_value)
-                if a_value is not None:
-                    stream_info_dict[a_key] = a_value
-
-
-            ## stream footer:
-            for a_key in ('first_timestamp', 'last_timestamp', 'sample_count'):
-                a_value = stream.get('footer', {}).get('info', {}).get(a_key, None)
-                a_value = unwrap_single_element_listlike_if_needed(a_value)
-                if a_value is not None:
-                    stream_info_dict[a_key] = a_value
-
-            stream_infos.append(stream_info_dict)
-            
-            ## Process Data:
-            # stream_info_dict
-
-            if (fs == 0):  
-                # irregular event streams
-                ch_names = ['TextLogger_Markers']
-                ch_types = ['misc']
-                logger_timestamps = stream['time_stamps']
-                logger_clock_times = stream['clock_times']
-
-                logger_strings = [unwrap_single_element_listlike_if_needed(v) for v in stream['time_series']]
-                assert len(logger_timestamps) == len(logger_strings), f"len(logger_timestamps): {len(logger_timestamps)} != len(logger_strings): {len(logger_strings)}"
-                # info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
-                # data = np.array(stream['time_series']).T
-                # raw = mne.io.RawArray(data, info)
-                stream_created_at: float = float(stream['info']['created_at'][0]) # ['169993.1081304000']
-                stream_created_at_dt: datetime = file_datetime + pd.Timedelta(nanoseconds=stream_created_at)
-                ## check
-                assert ((stream_created_at_dt - file_datetime).total_seconds() < (90.0 * 60.0)) # should be less than 10 seconds between the file start and the logging stream (usually...)
-                logger_clock_times = [(file_datetime + pd.Timedelta(nanoseconds=v)) for v in logger_clock_times]
-
-                # logger_timestamps = [(logger_clock_times[0] + pd.Timedelta(nanoseconds=v)) for v in logger_timestamps]
-
-                # pd. logger_timestamps
-                # stream_first_timestamp: float = float(stream['footer']['info']['first_timestamp'][0])
-                # stream_last_timestamp: float = float(stream['footer']['info']['last_timestamp'][0])
-                # # stream_num_samples: int = int(stream['footer']['info']['sample_count'][0])
-                # stream_approx_dur_sec: float = stream_last_timestamp - stream_first_timestamp
-
-                stream_first_timestamp: float = float(stream['footer']['info']['first_timestamp'][0]) # 29605.4462984
-                stream_last_timestamp: float = float(stream['footer']['info']['last_timestamp'][0]) # 30373.1166288
-
-                stream_first_timestamp = pd.Timedelta(nanoseconds=stream_first_timestamp)
-                stream_last_timestamp = pd.Timedelta(nanoseconds=stream_last_timestamp)
-
-                # stream_num_samples: int = int(stream['footer']['info']['sample_count'][0])
-                stream_approx_dur_sec: float = stream_last_timestamp - stream_first_timestamp
-                # best_found_unit: str = MNEHelpers.determine_best_timedelta_unit_for_annotations(unknown_unit_timestamps=logger_timestamps, stream_approx_dur_sec=stream_approx_dur_sec)
-                # best_found_unit: str = 'ns' ## always nanoseconds
-                best_found_unit: str = 'ms' ## always nanoseconds
-                print(f'\tbest_found_unit: "{best_found_unit}"')
-                # [pd.to_timedelta(a_start_stop_diff, unit=a_unit).total_seconds() for a_unit in ('ns', 'us', 'ms', 's')] 
-                # pd.to_timedelta(a_start_stop_diff, unit='ns')
-
-                # If orig_time is None, the annotations are synced to the start of the data (0 seconds). Otherwise the annotations are synced to sample 0 and raw.first_samp is taken into account the same way as with events.
-                # meas_date = deepcopy(file_datetime) # deepcopy(a_ds.info['meas_date'])
-                # converted = pd.to_timedelta(logger_timestamps, unit=best_found_unit)
-                # converted = file_datetime + converted
-
-                # logger_timestamps = [(logger_clock_times[0] + pd.Timedelta(nanoseconds=v)) for v in logger_timestamps]
-
-                converted_dt = [(file_datetime + pd.to_timedelta(v, unit=best_found_unit)) for v in logger_timestamps]
-                # converted = [(v - file_datetime).total_seconds() for v in converted]
-
-                a_raw_df: pd.DataFrame = pd.DataFrame(dict(onset=converted_dt, duration=([0.0] * len(logger_timestamps)), description=logger_strings))
-                all_annotations.append(a_raw_df)
-
-                converted = [(v - file_datetime).total_seconds() for v in converted_dt]
-                # converted = file_datetime + pd.to_timedelta(logger_timestamps, unit="ns") ## starts out in nanoseconds (ns) relative to `file_datetime`
-                # converted = file_datetime + pd.to_timedelta(logger_timestamps, unit=best_found_unit) ## starts out in specified unit relative to `file_datetime`
-                # converted = converted - file_datetime ## subtract out the `file_datetime` component
-                # converted = converted.total_seconds() ## use .total_seconds() to get the value in seconds
-                # raw = mne.Annotations(onset=logger_timestamps, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime.astimezone(timezone.utc))
-                raw = mne.Annotations(onset=converted, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=None) ## set orig_time=None
-                # A POSIX Timestamp, datetime or a tuple containing the timestamp as the first element and microseconds as the second element. Determines the starting time of annotation acquisition. If None (default), starting time is determined from beginning of raw data acquisition. In general, raw.info['meas_date'] (or None) can be used for syncing the annotations with raw data if their acquisition is started at the same time. If it is a string, it should conform to the ISO8601 format. More precisely to this '%%Y-%%m-%%d %%H:%%M:%%S.%%f' particular case of the ISO8601 format where the delimiter between date and time is ' '.
-                # raw = mne.Annotations(onset=converted, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime)
-                # raw = mne.Annotations(onset=pd.to_timedelta(logger_timestamps, unit="ns"), duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime)     
-                
-                raws.append(raw)
-                if a_modality is not None:
-                    raws_dict[a_modality].append(raw)
-
             else:
-                ## fixed sampling rate streams:
-                _channels_dict = benedict(stream['info']['desc'][0]['channels'][0])
-                channels_df: pd.DataFrame = pd.DataFrame.from_records([{k:v[0] for k, v in ch_v.items()} for ch_v in _channels_dict.flatten()['channel']])
-                data = np.array(stream['time_series']).T
-                if stream_info_dict['type'] == 'EEG':
-                    pass
-                # ch_names = [f"{name}_{i}" for i in range(data.shape[0])]
-                # ch_types = ["eeg"] * data.shape[0]  # adjust depending on stream type
-                ch_names = channels_df['label'].to_list()
-                ch_types = [cls.lab_recorder_to_mne_to_type_dict[v] for v in channels_df['type']]
+                n_samples, n_channels = np.shape(stream['time_series'])
+                stream_info_dict.update(**{'n_samples': n_samples, 'n_channels': n_channels})
+                ## stream info keys:
+                for a_key in ('type', 'stream_id', 'effective_srate', 'hostname', 'source_id', 'channel_count', 'channel_format', 'type', 'created_at', 'source_id', 'version', 'uid'):
+                    a_value = stream['info'].get(a_key, None)
+                    a_value = unwrap_single_element_listlike_if_needed(a_value)
+                    if a_value is not None:
+                        stream_info_dict[a_key] = a_value
+
+                ## stream footer:
+                for a_key in ('first_timestamp', 'last_timestamp', 'sample_count'):
+                    a_value = stream.get('footer', {}).get('info', {}).get(a_key, None)
+                    a_value = unwrap_single_element_listlike_if_needed(a_value)
+                    if a_value is not None:
+                        stream_info_dict[a_key] = float(a_value)
+
+                ## Update the timestamp keys to float values, and the create a datetime column by adding them to the `file_datetime`
+                timestamp_keys = ('created_at', 'first_timestamp', 'last_timestamp')
+                for a_key in timestamp_keys:
+                    if stream_info_dict.get(a_key, None) is not None:
+                        a_ts_value: float = float(stream_info_dict[a_key]) # ['169993.1081304000']
+                        a_ts_value_dt: datetime = file_datetime + pd.Timedelta(nanoseconds=a_ts_value)
+                        a_dt_key: str = f'{a_key}_dt'
+                        stream_info_dict[a_dt_key] = a_ts_value_dt
+                        print(f'\t{a_dt_key}: {a_ts_value_dt.astimezone(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %I:%M:%S %p")}')
+                        
+
+
+                ############ pd.TimeDelta unit: `nanoseconds`
+                # file_datetime: 2025-10-17 05:51:12 PM
+                # WARN: skipping empty stream: "EventBoard"
+                #     created_at_dt: 2025-10-17 05:51:12 PM
+                #     first_timestamp_dt: 2025-10-17 05:51:12 PM
+                #     last_timestamp_dt: 2025-10-17 05:51:12 PM
+
+                ############ pd.TimeDelta unit: `milliseconds`
+                # file_datetime: 2025-10-17 05:51:12 PM
+                # WARN: skipping empty stream: "EventBoard"
+                # 	created_at_dt: 2025-10-17 05:55:04 PM
+                # 	first_timestamp_dt: 2025-10-17 05:55:04 PM
+                # 	last_timestamp_dt: 2025-10-17 05:55:09 PM
+                # 	best_found_unit: "ms"
+
+                ############ pd.TimeDelta unit: `seconds`
+                # file_datetime: 2025-10-17 05:51:12 PM
+                # WARN: skipping empty stream: "EventBoard"
+                #     created_at_dt: 2025-10-20 10:26:18 AM
+                #     first_timestamp_dt: 2025-10-20 10:27:33 AM
+                #     last_timestamp_dt: 2025-10-20 11:43:06 AM
+                    
+
+                # if stream_info_dict.get('created_at', None) is not None:
+                #     stream_created_at: float = float(stream_info_dict['created_at']) # ['169993.1081304000']
+                #     stream_created_at_dt: datetime = file_datetime + pd.Timedelta(nanoseconds=stream_created_at)
+                # else:
+                #     stream_created_at_dt: datetime = file_datetime
                 
-                info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
-                info = info.set_meas_date(file_datetime)
-                info['description'] = a_xdf_file.as_posix()
-                info['device_info'] = {'type':'USB', 'model':'EpocX', 'serial': '', 'site':'pho'} # #TODO 2025-09-22 08:51: - [ ] Add Hostname<USB> or Hostname<BLE>
+                # stream_info_dict['stream_created_at_dt'] = stream_created_at_dt
+                # print(f'stream_created_at_dt: {stream_created_at_dt.astimezone(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %I:%M:%S %p")}')
+
+
+                ## Add stream info dict to the stream_infos list:
+                stream_infos.append(stream_info_dict)
                 
-                raw = mne.io.RawArray(data, info)   
-                raws.append(raw)
-                if a_modality is not None:
-                    raws_dict[a_modality].append(raw)
+                ## Process Data:
+                # stream_info_dict
+
+                if (fs == 0):  
+                    # irregular event streams
+                    ch_names = ['TextLogger_Markers']
+                    ch_types = ['misc']
+                    logger_timestamps = stream['time_stamps']
+                    logger_clock_times = stream['clock_times']
+
+                    logger_strings = [unwrap_single_element_listlike_if_needed(v) for v in stream['time_series']]
+                    assert len(logger_timestamps) == len(logger_strings), f"len(logger_timestamps): {len(logger_timestamps)} != len(logger_strings): {len(logger_strings)}"
+                    # info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
+                    # data = np.array(stream['time_series']).T
+                    # raw = mne.io.RawArray(data, info)
+
+                    ## check
+                    assert ((stream_info_dict['created_at_dt'] - file_datetime).total_seconds() < (90.0 * 60.0)) # should be less than 10 seconds between the file start and the logging stream (usually...)
+                    logger_clock_times = [(file_datetime + pd.Timedelta(nanoseconds=v)) for v in logger_clock_times]
+
+                    # logger_timestamps = [(logger_clock_times[0] + pd.Timedelta(nanoseconds=v)) for v in logger_timestamps]
+
+                    # pd. logger_timestamps
+                    # stream_first_timestamp: float = float(stream['footer']['info']['first_timestamp'][0])
+                    # stream_last_timestamp: float = float(stream['footer']['info']['last_timestamp'][0])
+                    # # stream_num_samples: int = int(stream['footer']['info']['sample_count'][0])
+                    # stream_approx_dur_sec: float = stream_last_timestamp - stream_first_timestamp
+
+                    stream_first_timestamp: float = float(stream['footer']['info']['first_timestamp'][0]) # 29605.4462984
+                    stream_last_timestamp: float = float(stream['footer']['info']['last_timestamp'][0]) # 30373.1166288
+
+                    stream_first_timestamp = pd.Timedelta(seconds=stream_first_timestamp)
+                    stream_last_timestamp = pd.Timedelta(seconds=stream_last_timestamp)
+
+                    # stream_num_samples: int = int(stream['footer']['info']['sample_count'][0])
+                    stream_approx_dur_sec: float = stream_last_timestamp - stream_first_timestamp
+                    # best_found_unit: str = MNEHelpers.determine_best_timedelta_unit_for_annotations(unknown_unit_timestamps=logger_timestamps, stream_approx_dur_sec=stream_approx_dur_sec)
+                    # best_found_unit: str = 'ns' ## always nanoseconds
+                    best_found_unit: str = 'ms' ## always nanoseconds
+                    print(f'\tbest_found_unit: "{best_found_unit}"')
+                    # [pd.to_timedelta(a_start_stop_diff, unit=a_unit).total_seconds() for a_unit in ('ns', 'us', 'ms', 's')] 
+                    # pd.to_timedelta(a_start_stop_diff, unit='ns')
+
+                    # If orig_time is None, the annotations are synced to the start of the data (0 seconds). Otherwise the annotations are synced to sample 0 and raw.first_samp is taken into account the same way as with events.
+                    # meas_date = deepcopy(file_datetime) # deepcopy(a_ds.info['meas_date'])
+                    # converted = pd.to_timedelta(logger_timestamps, unit=best_found_unit)
+                    # converted = file_datetime + converted
+
+                    # logger_timestamps = [(logger_clock_times[0] + pd.Timedelta(nanoseconds=v)) for v in logger_timestamps]
+
+                    converted_dt = [(file_datetime + pd.to_timedelta(v, unit=best_found_unit)) for v in logger_timestamps]
+                    # converted = [(v - file_datetime).total_seconds() for v in converted]
+
+                    a_raw_df: pd.DataFrame = pd.DataFrame(dict(onset=converted_dt, duration=([0.0] * len(logger_timestamps)), description=logger_strings))
+                    all_annotations.append(a_raw_df)
+
+                    converted = [(v - file_datetime).total_seconds() for v in converted_dt]
+                    # converted = file_datetime + pd.to_timedelta(logger_timestamps, unit="ns") ## starts out in nanoseconds (ns) relative to `file_datetime`
+                    # converted = file_datetime + pd.to_timedelta(logger_timestamps, unit=best_found_unit) ## starts out in specified unit relative to `file_datetime`
+                    # converted = converted - file_datetime ## subtract out the `file_datetime` component
+                    # converted = converted.total_seconds() ## use .total_seconds() to get the value in seconds
+                    # raw = mne.Annotations(onset=logger_timestamps, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime.astimezone(timezone.utc))
+                    raw = mne.Annotations(onset=converted, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=None) ## set orig_time=None
+                    # A POSIX Timestamp, datetime or a tuple containing the timestamp as the first element and microseconds as the second element. Determines the starting time of annotation acquisition. If None (default), starting time is determined from beginning of raw data acquisition. In general, raw.info['meas_date'] (or None) can be used for syncing the annotations with raw data if their acquisition is started at the same time. If it is a string, it should conform to the ISO8601 format. More precisely to this '%%Y-%%m-%%d %%H:%%M:%%S.%%f' particular case of the ISO8601 format where the delimiter between date and time is ' '.
+                    # raw = mne.Annotations(onset=converted, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime)
+                    # raw = mne.Annotations(onset=pd.to_timedelta(logger_timestamps, unit="ns"), duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime)     
+                    
+                    ## UPDATE `raws` and `raws_dict` with the new raw object:
+                    raws.append(raw)
+                    if a_modality is not None:
+                        raws_dict[a_modality].append(raw)
+
+                else:
+                    ## fixed sampling rate streams:
+                    _channels_dict = benedict(stream['info']['desc'][0]['channels'][0])
+                    channels_df: pd.DataFrame = pd.DataFrame.from_records([{k:v[0] for k, v in ch_v.items()} for ch_v in _channels_dict.flatten()['channel']])
+                    data = np.array(stream['time_series']).T
+                    if stream_info_dict['type'] == 'EEG':
+                        pass
+                    # ch_names = [f"{name}_{i}" for i in range(data.shape[0])]
+                    # ch_types = ["eeg"] * data.shape[0]  # adjust depending on stream type
+                    ch_names = channels_df['label'].to_list()
+                    ch_types = [cls.lab_recorder_to_mne_to_type_dict[v] for v in channels_df['type']]
+                    
+                    info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
+                    info = info.set_meas_date(file_datetime)
+                    info['description'] = a_xdf_file.as_posix()
+                    info['device_info'] = {'type':'USB', 'model':'EpocX', 'serial': '', 'site':'pho'} # #TODO 2025-09-22 08:51: - [ ] Add Hostname<USB> or Hostname<BLE>
+                    
+                    raw = mne.io.RawArray(data, info)
+
+                    ## UPDATE `raws` and `raws_dict` with the new raw object:
+                    raws.append(raw)
+                    if a_modality is not None:
+                        raws_dict[a_modality].append(raw)
+        ## END for stream in streams...
 
         stream_infos: pd.DataFrame = pd.DataFrame.from_records(stream_infos)
         time_col_name: str = 'onset'
