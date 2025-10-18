@@ -907,6 +907,12 @@ class LabRecorderXDF:
                     logger_timestamps = stream['time_stamps']
                     logger_clock_times = stream['clock_times']
 
+                    if len(logger_timestamps) > 0:
+                        logger_timestamps = logger_timestamps - logger_timestamps[0] ## subtract out the first timestamp
+                    if len(logger_clock_times) > 0:
+                        logger_clock_times = logger_clock_times - logger_clock_times[0] ## subtract out the first timestamp
+                    
+
                     logger_strings = [unwrap_single_element_listlike_if_needed(v) for v in stream['time_series']]
                     assert len(logger_timestamps) == len(logger_strings), f"len(logger_timestamps): {len(logger_timestamps)} != len(logger_strings): {len(logger_strings)}"
                     # info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
