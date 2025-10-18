@@ -278,7 +278,7 @@ class MNEHelpers:
                                                     description=existing_annotations.description,
                                                     orig_time=None) # change to None-based time
                         ## set the annotations
-                        raw.set_annotations(existing_annotations)
+                        raw = raw.set_annotations(existing_annotations)
 
                 ## Update: eeg_existing_annotations_orig_time, which should now be None
                 eeg_existing_annotations_orig_time = existing_annotations.orig_time
@@ -305,20 +305,20 @@ class MNEHelpers:
                                                     description=new_annots.description,
                                                     orig_time=None)
 
-                raw.set_annotations(existing_annotations + new_annots)
+                raw = raw.set_annotations(existing_annotations + new_annots)
                                 
 
         else:
             # If no existing annotations, just set new ones
             if (existing_annotations is None) or (len(existing_annotations) == 0):
-                raw.set_annotations(new_annots)
+                raw = raw.set_annotations(new_annots)
                 return raw
 
             # Align orig_time
             if eeg_existing_annotations_orig_time != new_orig_time:
                 if (eeg_existing_annotations_orig_time is None) and (new_orig_time is not None):
                     # keep new_annots as-is, raw will adopt its orig_time
-                    raw.set_annotations(existing_annotations + new_annots)
+                    raw = raw.set_annotations(existing_annotations + new_annots)
                     return raw
                 elif (eeg_existing_annotations_orig_time is not None) and (new_orig_time is not None):
                     # compute shift between two origins
@@ -334,9 +334,9 @@ class MNEHelpers:
                                                 description=new_annots.description,
                                                 orig_time=eeg_existing_annotations_orig_time)
 
-            raw.set_annotations(existing_annotations + new_annots)
+            raw = raw.set_annotations(existing_annotations + new_annots)
 
-
+        return raw
 
     @classmethod
     def debug_compare_raw_alignments(cls, time_col_name: str = 'time', **raws_kwargs):
