@@ -4687,6 +4687,7 @@ dependencies = [
     { name = "panel", version = "1.4.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "panel", version = "1.8.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "phantomjs" },
+    { name = "phopylslhelper" },
     { name = "pillow" },
     { name = "plotly" },
     { name = "pycryptodome" },
@@ -4758,6 +4759,7 @@ requires-dist = [
     { name = "pandas", specifier = ">=1.5.3,<3.0.0" },
     { name = "panel", specifier = ">=1.4.5" },
     { name = "phantomjs", specifier = ">=1.4.1" },
+    { name = "phopylslhelper", git = "https://github.com/CommanderPho/phopylslhelper.git" },
     { name = "pillow", specifier = ">=11.3.0" },
     { name = "plotly", specifier = ">=6.3.0" },
     { name = "pycryptodome", specifier = ">=3.23.0" },
@@ -4782,6 +4784,15 @@ requires-dist = [
     { name = "wheel", specifier = ">=0.45.1" },
     { name = "xarray", extras = ["complete"], specifier = ">=2024.3.0" },
     { name = "zarr", specifier = ">=2.18.2" },
+]
+
+[[package]]
+name = "phopylslhelper"
+version = "0.1.2"
+source = { git = "https://github.com/CommanderPho/phopylslhelper.git#e0488225ba36dc68a0da2e86f9892876ed437218" }
+dependencies = [
+    { name = "pylsl" },
+    { name = "pytz" },
 ]
 
 [[package]]
