@@ -68,7 +68,7 @@ class MotionData:
         # annots: mne.Annotations = MNEHelpers.convert_df_with_boolean_col_to_epochs(deepcopy(a_motion_df), is_bad_col_name="is_moving", annotation_description_name="BAD_motion", time_col_names='time', meas_date=meas_date) # , **kwargs
         
         is_moving_annots_df: pd.DataFrame = MNEHelpers.convert_df_with_boolean_col_to_epochs(deepcopy(a_motion_df), is_bad_col_name="is_moving", annotation_description_name="BAD_motion", time_col_names='time')        
-        is_moving_annots: mne.Annotations = mne.Annotations(onset=is_moving_annots_df['onsets'].to_numpy(), duration=is_moving_annots_df['durations'].to_numpy(), description=is_moving_annots_df['description'].to_numpy(), orig_time=meas_date)
+        is_moving_annots: mne.Annotations = mne.Annotations(onset=is_moving_annots_df['onset'].to_numpy(), duration=is_moving_annots_df['duration'].to_numpy(), description=is_moving_annots_df['description'].to_numpy(), orig_time=meas_date)
 
 
         if should_set_bad_period_annotations:

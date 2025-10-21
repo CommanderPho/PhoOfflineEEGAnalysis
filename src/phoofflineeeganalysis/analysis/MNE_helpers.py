@@ -171,10 +171,7 @@ class MNEHelpers:
     
 
     @classmethod
-    def convert_df_with_boolean_col_to_epochs(cls, df: pd.DataFrame, time_col_names: str='time', is_bad_col_name: str='is_moving', 
-                                                                                            annotation_description_name:str="BAD_motion",
-                                                                                            meas_date=None,
-                                                                                            ) -> mne.Annotations:
+    def convert_df_with_boolean_col_to_epochs(cls, df: pd.DataFrame, time_col_names: str='time', is_bad_col_name: str='is_moving',  annotation_description_name:str="BAD_motion", meas_date=None) -> mne.Annotations:
         """ Convert 'start_time' and 'end_time' columns to datetime
 
         Usage:
@@ -204,8 +201,12 @@ class MNEHelpers:
                 onsets.append(active_times[seg[0]])
                 durations.append(active_times[seg[-1]] - active_times[seg[0]])
 
-        is_moving_annots: mne.Annotations = mne.Annotations(onset=onsets, duration=durations, description=[annotation_description_name]*len(onsets), orig_time=meas_date)
-        return is_moving_annots
+
+        is_moving_df: pd.DataFrame = pd.DataFrame(dict(onset=onsets, duration=durations, description=[annotation_description_name]*len(onsets)))
+        return is_moving_df
+
+        # is_moving_annots: mne.Annotations = mne.Annotations(onset=onsets, duration=durations, description=[annotation_description_name]*len(onsets), orig_time=meas_date)
+        # return is_moving_annots
 
 
     @classmethod
