@@ -265,13 +265,11 @@ class MNEHelpers:
             n_actual_post_annots: int = len(a_raw.annotations)
             print(f'\tn_actual_post_annots: {n_actual_post_annots}')
             assert (n_actual_post_annots >= n_existing_annots)
-            assert (n_actual_post_annots == (n_existing_annots + n_new_annots)), f"n_actual_post_annots {n_actual_post_annots} != (n_existing_annots + n_new_annots): {(n_existing_annots + n_new_annots)}"
+            # assert (n_actual_post_annots == (n_existing_annots + n_new_annots)), f"n_actual_post_annots {n_actual_post_annots} != (n_existing_annots + n_new_annots): {(n_existing_annots + n_new_annots)}" ## only if they are unique
             
 
         if (new_annots is None) or (len(new_annots) == 0):
             return raw  # nothing to merge
-
-        existing_annotations = raw.annotations
 
         ## align annotations:
         eeg_existing_annotations_orig_time = existing_annotations.orig_time ## for some reason the initial (empty) one is not None: datetime.datetime(2025, 9, 11, 10, 13, 28, tzinfo=datetime.timezone.utc)
