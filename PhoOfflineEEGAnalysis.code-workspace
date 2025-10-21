@@ -8,6 +8,9 @@
 		},
 		{
 			"path": "../mne-python"
+		},
+		{
+			"path": "../mnelab"
 		}
 	],
 	"settings": {
