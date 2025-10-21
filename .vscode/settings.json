@@ -55,5 +55,6 @@
         "**/EXTERNAL/TESTING/OLD": true,
         "**/__pycache__": true,
     },
+    "git.ignoreLimitWarning": true,
 
 }
