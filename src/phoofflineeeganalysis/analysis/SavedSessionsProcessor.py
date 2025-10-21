@@ -1040,9 +1040,6 @@ class LabRecorderXDF:
                     ch_types = ['misc']
                     logger_strings = [unwrap_single_element_listlike_if_needed(v) for v in stream['time_series']]
                     assert len(stream_timestamps) == len(logger_strings), f"len(stream_timestamps): {len(stream_timestamps)} != len(logger_strings): {len(logger_strings)}"
-                    # info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
-                    # data = np.array(stream['time_series']).T
-                    # raw = mne.io.RawArray(data, info)
 
                     ## check
                     assert ((stream_info_dict['created_at_dt'] - file_datetime).total_seconds() < (90.0 * 60.0)) # should be less than 10 seconds between the file start and the logging stream (usually...)
@@ -1413,7 +1410,7 @@ class LabRecorderXDF:
                 # stream_infos['xdf_dataset_idx'] = a_xdf_file.name ## just the name
                 _out_xdf_stream_infos_df.append(stream_infos)
                 
-            except (ValueError, KeyError) as e:
+            except (ValueError, KeyError, AssertionError) as e:
                 print(f'\t failed with error: {e}\n\tskipping file.')
                 if fail_on_exception:
                     raise
