@@ -58,7 +58,9 @@ import mne
 import numpy as np
 from benedict import benedict
 
-from phopylslhelper.easy_time_sync import EasyTimeSyncParsingMixin, readable_dt_str, from_readable_dt_str
+from phopylslhelper.general_helpers import unwrap_single_element_listlike_if_needed, readable_dt_str, from_readable_dt_str, localize_datetime_to_timezone, tz_UTC, tz_Eastern, _default_tz
+from phopylslhelper.easy_time_sync import EasyTimeSyncParsingMixin
+
 
 
 class DataModalityType(Enum):
@@ -71,7 +73,7 @@ class DataModalityType(Enum):
 
     def __str__(self):
         return self.name
-
+    
     @classmethod
     def list_values(cls):
         """Returns a list of all enum values"""
@@ -969,7 +971,11 @@ class LabRecorderXDF:
 
                 desc_info_dict = dict(stream['info'].get('desc', [{}])[0])
                 stream_info_dict = EasyTimeSyncParsingMixin.parse_and_add_lsl_outlet_info_from_desc(desc_info_dict=desc_info_dict, stream_info_dict=stream_info_dict) ## Returns the updated `stream_info_dict`
+                stream_info_dict['stream_start_datetime'] = stream_info_dict['stream_start_datetime'].astimezone(tz_UTC) ## fixup to UTC
 
+
+                
+                
 
                 # ## try to get the special marker timestamp helpers:
                 # desc_info_dict = dict(stream['info'].get('desc', [{}])[0])
@@ -983,9 +989,6 @@ class LabRecorderXDF:
                 #         # a_ts_value_dt: datetime = file_datetime + pd.Timedelta(nanoseconds=a_ts_value)
                 #         stream_info_dict[a_key] = a_ts_value ## In-contrast to what we get the data from, we SET the data to `stream_info_dict` just as above (flattening)
                 #         print(f'\t FOUND CUSTOM TIMESTAMP SYNC KEY: "{a_key}": {a_ts_value}')
-
-
-
 
                 ############ pd.TimeDelta unit: `nanoseconds`
                 # file_datetime: 2025-10-17 05:51:12 PM
@@ -1051,12 +1054,16 @@ class LabRecorderXDF:
                 zeroed_stream_clock_times = deepcopy(stream_clock_times)
 
                 if len(zeroed_stream_timestamps) > 0:
-                    zeroed_stream_timestamps = zeroed_stream_timestamps - zeroed_stream_timestamps[0] ## subtract out the first timestamp
+                    assert stream_info_dict.get('stream_start_lsl_local_offset_seconds', None) is not None
+                    # zeroed_stream_timestamps = zeroed_stream_timestamps - zeroed_stream_timestamps[0] ## subtract out the first timestamp
+                    zeroed_stream_timestamps = zeroed_stream_timestamps - stream_info_dict['stream_start_lsl_local_offset_seconds']
                 if len(zeroed_stream_clock_times) > 0:
                     zeroed_stream_clock_times = zeroed_stream_clock_times - zeroed_stream_clock_times[0] ## subtract out the first timestamp
                 
                 zeroed_stream_timestamps_dt = np.array([pd.Timedelta(seconds=v) for v in zeroed_stream_timestamps]) ## convert to timedelta (for no reason)
-                stream_datetimes = np.array([stream_info_dict.get('recording_start_datetime', file_datetime) + pd.Timedelta(seconds=v) for v in zeroed_stream_timestamps]) ## List[datetime]
+                # stream_datetimes = np.array([stream_info_dict.get('recording_start_datetime', file_datetime) + pd.Timedelta(seconds=v) for v in zeroed_stream_timestamps]) ## List[datetime]
+                assert stream_info_dict.get('stream_start_datetime', None) is not None
+                stream_datetimes = np.array([stream_info_dict.get('stream_start_datetime', file_datetime) + pd.Timedelta(seconds=v) for v in zeroed_stream_timestamps]) ## compatibility
 
                 ## OUTPUTS: stream_datetimes
 
@@ -1110,7 +1117,7 @@ class LabRecorderXDF:
 
                     # logger_timestamps = [(logger_clock_times[0] + pd.Timedelta(nanoseconds=v)) for v in logger_timestamps]
 
-                    converted_dt = [(file_datetime + pd.to_timedelta(v, unit=best_found_unit)) for v in stream_timestamps]
+                    # converted_dt = [(file_datetime + pd.to_timedelta(v, unit=best_found_unit)) for v in stream_timestamps]
 
                     # converted_dt = zeroed_stream_timestamps_dt # [(file_datetime + pd.to_timedelta(v, unit=best_found_unit)) for v in stream_timestamps]
                     # converted = [(v - file_datetime).total_seconds() for v in converted]
@@ -1143,7 +1150,7 @@ class LabRecorderXDF:
                     _channels_dict = benedict(stream['info']['desc'][0]['channels'][0])
                     channels_df: pd.DataFrame = pd.DataFrame.from_records([{k:v[0] for k, v in ch_v.items()} for ch_v in _channels_dict.flatten()['channel']])
                     data = np.array(stream['time_series']).T
-                    if stream_info_dict['type'] == 'EEG':
+                    if (stream_info_dict['type'] == 'EEG'):
                         pass
                     # ch_names = [f"{name}_{i}" for i in range(data.shape[0])]
                     # ch_types = ["eeg"] * data.shape[0]  # adjust depending on stream type
@@ -1153,8 +1160,12 @@ class LabRecorderXDF:
                     info = mne.create_info(ch_names=ch_names, sfreq=fs, ch_types=ch_types)
                     info = info.set_meas_date(file_datetime)
                     info['description'] = a_xdf_file.as_posix()
-                    info['device_info'] = {'type':'USB', 'model':'EpocX', 'serial': '', 'site':'pho'} # #TODO 2025-09-22 08:51: - [ ] Add Hostname<USB> or Hostname<BLE>
-                    
+                    info['device_info'] = {'type':'USB', 'model':'EpocX', 'serial': '', 'site':'pho', 'stream_info': {}} # #TODO 2025-09-22 08:51: - [ ] Add Hostname<USB> or Hostname<BLE>
+                    # info['temp']
+                    info['device_info']['stream_info'] = {}
+                    for k, v in stream_info_dict.items():
+                        info['device_info']['stream_info'][k] = deepcopy(v)
+
                     raw = mne.io.RawArray(data, info) ## also have , first_samp=0
 
                     ## UPDATE `raws` and `raws_dict` with the new raw object:
@@ -1166,6 +1177,38 @@ class LabRecorderXDF:
         stream_infos: pd.DataFrame = pd.DataFrame.from_records(stream_infos)
         stream_infos
 
+
+        stream_infos = stream_infos.sort_values('stream_start_datetime', ascending=True, inplace=False)
+        earliest_stream_start_datetime: datetime = np.nanmin(stream_infos['stream_start_datetime'].to_numpy()) # Timestamp('2025-10-20 18:28:33-0400', tz='US/Eastern')
+        stream_infos['stream_start_datetime_rel_to_earliest'] = (stream_infos['stream_start_datetime'] - earliest_stream_start_datetime) #.dt.total_seconds() #.to_numpy().total_seconds()
+
+        # earliest_stream_start_datetime
+        #     Timestamp('2025-10-20 18:28:33-0400', tz='US/Eastern')
+        
+        # stream_infos['stream_start_datetime']
+        #     1   2025-10-20 18:28:33-04:00
+        #     0   2025-10-20 18:46:18-04:00
+        #     2   2025-10-20 18:46:18-04:00
+        #     Name: stream_start_datetime, dtype: datetime64[ns, US/Eastern]
+
+        # (stream_infos['stream_start_datetime'] - earliest_stream_start_datetime)
+        #     1   0 days 00:00:00
+        #     0   0 days 00:17:45
+        #     2   0 days 00:17:45
+        #     Name: stream_start_datetime, dtype: timedelta64[ns]
+
+
+        # (stream_infos['stream_start_datetime'] - earliest_stream_start_datetime).dt.total_seconds()
+            # 1       0.0
+            # 0    1065.0
+            # 2    1065.0
+            # Name: stream_start_datetime, dtype: float64
+
+
+        stream_infos['stream_start_datetime_rel_to_earliest']
+
+
+        earliest_stream_start_lsl_local_offset_seconds: float = np.nanmin(stream_infos['stream_start_lsl_local_offset_seconds'])
 
         # - [ ] TODO 2025-10-18 Attempt to appropriately re-zero each stream's `'stream_timestamps'` (seconds since recording start conceptually) to the same zero so they can easily be concatenated). Currently assumes they all started at the same time with no offset (which wouldn't be true if I started the logger after the EEG stream, for example).
         ## streams_timestamp_dfs
