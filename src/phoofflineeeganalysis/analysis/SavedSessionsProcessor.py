@@ -901,6 +901,11 @@ class LabRecorderXDF:
         from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers, RawArrayExtended, RawExtended, up_convert_raw_obj, up_convert_raw_objects
         from phoofflineeeganalysis.analysis.motion_data import MotionData
 
+        skipped_stream_names: List[str] = [
+            # 'TextLogger',
+            'EventBoard',
+        ]
+
         # Load .xdf
         # streams, header = pyxdf.load_xdf(a_xdf_file)
         # streams, header = pyxdf.load_xdf(a_xdf_file, synchronize_clocks=False, handle_clock_resets=False, dejitter_timestamps=False, verbose=True) ## disabled sync since it wasn't working anyway
@@ -921,7 +926,8 @@ class LabRecorderXDF:
 
         streams_timestamp_dfs = {}
 
-        all_annotations = []
+        all_annotations_dfs = []
+        all_annotations_objs: List[mne.Annotations] = []
 
         for stream in streams:
             name: str = stream['info']['name'][0]
@@ -938,8 +944,13 @@ class LabRecorderXDF:
 
             sample_count: int = stream['footer']['info']['sample_count'][0]
 
-            if len(stream['time_series']) == 0:
+            
+            
+            if (len(stream['time_series']) == 0):
                 print(f'\tWARN: skipping empty stream: "{name}"')
+                continue ## skip this stream
+            elif (name in skipped_stream_names):
+                print(f'\tWARN: skipping "{name}" with name in skipped_stream_names: {skipped_stream_names}')
                 continue ## skip this stream
             else:
                 n_samples, n_channels = np.shape(stream['time_series'])
@@ -970,10 +981,7 @@ class LabRecorderXDF:
                         
 
                 desc_info_dict = dict(stream['info'].get('desc', [{}])[0])
-                stream_info_dict = EasyTimeSyncParsingMixin.parse_and_add_lsl_outlet_info_from_desc(desc_info_dict=desc_info_dict, stream_info_dict=stream_info_dict) ## Returns the updated `stream_info_dict`
-                stream_info_dict['stream_start_datetime'] = stream_info_dict['stream_start_datetime'].astimezone(tz_UTC) ## fixup to UTC
-
-
+                stream_info_dict = EasyTimeSyncParsingMixin.parse_and_add_lsl_outlet_info_from_desc(desc_info_dict=desc_info_dict, stream_info_dict=stream_info_dict, should_fail_on_missing=False) ## Returns the updated `stream_info_dict`
                 
                 
 
@@ -1040,7 +1048,7 @@ class LabRecorderXDF:
                 print(f'\tstream_approx_dur_sec: {stream_approx_dur_sec}')
                 # best_found_unit: str = MNEHelpers.determine_best_timedelta_unit_for_annotations(unknown_unit_timestamps=logger_timestamps, stream_approx_dur_sec=stream_approx_dur_sec)
                 # best_found_unit: str = 'ns' ## always nanoseconds
-                best_found_unit: str = 'ms' ## always nanoseconds
+                # best_found_unit: str = 'ms' ## always nanoseconds
                 # print(f'\tbest_found_unit: "{best_found_unit}"')
                 
 
@@ -1124,7 +1132,7 @@ class LabRecorderXDF:
 
                     # a_raw_df: pd.DataFrame = pd.DataFrame(dict(onset=zeroed_stream_timestamps, onset_dt=zeroed_stream_timestamps_dt, converted_dt=converted_dt, duration=([0.0] * len(zeroed_stream_timestamps_dt)), description=logger_strings))
                     a_raw_df: pd.DataFrame = pd.DataFrame(dict(onset=stream_datetimes, duration=([0.0] * len(zeroed_stream_timestamps_dt)), description=logger_strings))
-                    all_annotations.append(a_raw_df)
+                    all_annotations_dfs.append(a_raw_df)
 
                     # converted = [(v - file_datetime).total_seconds() for v in converted_dt]
                     # converted = file_datetime + pd.to_timedelta(logger_timestamps, unit="ns") ## starts out in nanoseconds (ns) relative to `file_datetime`
@@ -1134,7 +1142,13 @@ class LabRecorderXDF:
                     # raw = mne.Annotations(onset=logger_timestamps, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime.astimezone(timezone.utc))
                     # raw = mne.Annotations(onset=converted, duration=([0.0] * len(stream_timestamps)), description=logger_strings, orig_time=None) ## set orig_time=None
 
-                    raw = mne.Annotations(onset=zeroed_stream_timestamps, duration=([0.0] * len(zeroed_stream_timestamps)), description=logger_strings, orig_time=None) ## set orig_time=None
+                    # raw = mne.Annotations(onset=zeroed_stream_timestamps, duration=([0.0] * len(zeroed_stream_timestamps)), description=logger_strings, orig_time=None) ## set orig_time=None
+
+                    # stream_info_dict['stream_start_datetime'] = localize_datetime_to_timezone(stream_info_dict['stream_start_datetime'], tz=tz_UTC)
+                    
+
+                    # zeroed_stream_timestamps calculated using stream_info_dict['stream_start_lsl_local_offset_seconds']
+                    raw = mne.Annotations(onset=zeroed_stream_timestamps, duration=([0.0] * len(zeroed_stream_timestamps)), description=logger_strings, orig_time=stream_info_dict['stream_start_datetime']) ## set orig_time=None
                     
                     # A POSIX Timestamp, datetime or a tuple containing the timestamp as the first element and microseconds as the second element. Determines the starting time of annotation acquisition. If None (default), starting time is determined from beginning of raw data acquisition. In general, raw.info['meas_date'] (or None) can be used for syncing the annotations with raw data if their acquisition is started at the same time. If it is a string, it should conform to the ISO8601 format. More precisely to this '%%Y-%%m-%%d %%H:%%M:%%S.%%f' particular case of the ISO8601 format where the delimiter between date and time is ' '.
                     # raw = mne.Annotations(onset=converted, duration=([0.0] * len(logger_timestamps)), description=logger_strings, orig_time=file_datetime)
@@ -1142,6 +1156,8 @@ class LabRecorderXDF:
                     
                     ## UPDATE `raws` and `raws_dict` with the new raw object:
                     raws.append(raw)
+                    all_annotations_objs.append(raw)
+
                     if a_modality is not None:
                         raws_dict[a_modality].append(raw)
 
@@ -1162,6 +1178,7 @@ class LabRecorderXDF:
                     info['description'] = a_xdf_file.as_posix()
                     info['device_info'] = {'type':'USB', 'model':'EpocX', 'serial': '', 'site':'pho', 'stream_info': {}} # #TODO 2025-09-22 08:51: - [ ] Add Hostname<USB> or Hostname<BLE>
                     # info['temp']
+                    ## add in the 'stream_info' properties:
                     info['device_info']['stream_info'] = {}
                     for k, v in stream_info_dict.items():
                         info['device_info']['stream_info'][k] = deepcopy(v)
@@ -1205,10 +1222,13 @@ class LabRecorderXDF:
             # Name: stream_start_datetime, dtype: float64
 
 
-        stream_infos['stream_start_datetime_rel_to_earliest']
+        np.nanmin(stream_infos['stream_start_lsl_local_offset_seconds'])
+        
 
 
         earliest_stream_start_lsl_local_offset_seconds: float = np.nanmin(stream_infos['stream_start_lsl_local_offset_seconds'])
+
+        stream_infos['earliest_stream_rel_lsl_local_offset_seconds'] = stream_infos['stream_start_lsl_local_offset_seconds'] - earliest_stream_start_lsl_local_offset_seconds
 
         # - [ ] TODO 2025-10-18 Attempt to appropriately re-zero each stream's `'stream_timestamps'` (seconds since recording start conceptually) to the same zero so they can easily be concatenated). Currently assumes they all started at the same time with no offset (which wouldn't be true if I started the logger after the EEG stream, for example).
         ## streams_timestamp_dfs
@@ -1233,7 +1253,7 @@ class LabRecorderXDF:
             # ==================================================================================================================================================================================================================================================================================== #
             # Adding `DataModalityType.PHO_LOG_TO_LSL` before `DataModalityType.MOTION` annotations works, while the opposite order seems to lose the MOTION annotations                                                                                                                           #
             # ==================================================================================================================================================================================================================================================================================== #
-            an_all_annotations = deepcopy(all_annotations) #[]
+            an_all_annotations_dfs = deepcopy(all_annotations_dfs) #[]
 
             # for an_annotation_ds in raws_dict.get(DataModalityType.PHO_LOG_TO_LSL.value, []):
             #     num_annotations_to_add: int = len(an_annotation_ds)
@@ -1267,16 +1287,52 @@ class LabRecorderXDF:
             # Add Motion Annotations                                                                                                                                                                                                                                                               #
             # ==================================================================================================================================================================================================================================================================================== #
             for an_motion_raw_ds in raws_dict.get(DataModalityType.MOTION.value, []):
-
-                # motion_annots: mne.Annotations = MotionData.find_high_accel_periods(an_motion_raw_ds, should_set_bad_period_annotations=True)
-                motion_annots: mne.Annotations = MotionData.find_high_accel_periods(an_motion_raw_ds, should_set_bad_period_annotations=False) # should_set_bad_period_annotations=False must be False so it doesn't overwrite existing annotations
-                # an_all_annotations.append(motion_annots)
-                motion_annots_df: pd.DataFrame = motion_annots.to_data_frame(time_format='datetime')
+                an_motion_raw_ds: RawArrayExtended = up_convert_raw_obj(an_motion_raw_ds)
                 
-                motion_annots_df[time_col_name] = motion_annots_df[time_col_name].dt.tz_localize('UTC')
-                an_all_annotations.append(motion_annots_df)
+                curr_stream_start_dt: datetime = an_motion_raw_ds.info.get('device_info').get('stream_info', {}).get('stream_start_datetime', None)
+                assert curr_stream_start_dt is not None, f"an_motion_raw_ds.info.device_info.stream_info: {an_motion_raw_ds.info.get('device_info').get('stream_info', {})}"
+                
+                curr_stream_start_lsl_local_offset_seconds: float = an_motion_raw_ds.info.get('device_info').get('stream_info', {}).get('stream_start_lsl_local_offset_seconds', None) # 32587.1545579, HUGE
+                assert curr_stream_start_lsl_local_offset_seconds is not None, f"an_motion_raw_ds.info.device_info.stream_info: {an_motion_raw_ds.info.get('device_info').get('stream_info', {})}"
 
-                # MNEHelpers.merge_annotations(raw=an_eeg_ds, new_annots=motion_annots, align_to_Raw_meas_time=True)
+                
+                # motion_annots, an_is_moving_annots_df = MotionData.find_high_accel_periods(an_motion_raw_ds, should_set_bad_period_annotations=True, verbose=True) ## for file-scale
+                motion_annots, an_is_moving_annots_df = MotionData.find_high_accel_periods(an_motion_raw_ds, should_set_bad_period_annotations=False, verbose=True) # should_set_bad_period_annotations=False must be False so it doesn't overwrite existing annotations
+
+
+                # an_all_annotations.append(motion_annots)
+                # motion_annots_df: pd.DataFrame = motion_annots.to_data_frame(time_format='datetime')                
+                # motion_annots_df[time_col_name] = motion_annots_df[time_col_name].dt.tz_localize('UTC')
+                # an_all_annotations_df.append(motion_annots_df)
+                # an_all_annotations_dfs.append(motion_annots_df)
+                
+                
+                # a_motion_df['onset'] = deepcopy(a_motion_df['time'])
+                an_is_moving_annots_df['onset'] = np.array([pd.Timedelta(seconds=v) for v in an_is_moving_annots_df['onset']])
+                
+                # assert curr_stream_start_lsl_local_offset_seconds is not None
+                # a_motion_df['onset'] = deepcopy(a_motion_df['onset']) - curr_stream_start_lsl_local_offset_seconds ## subtract off rel sample, currently wrong
+                # a_motion_df['onset'] = np.array([(curr_stream_start_dt + pd.Timedelta(seconds=v)) for v in a_motion_df['onset']]) ## convert to absolute datetimes
+                an_is_moving_annots_df['onset'] = np.array([(curr_stream_start_dt + v) for v in an_is_moving_annots_df['onset']]) ## convert to absolute datetimes
+                
+                # a_motion_df['onset'] = a_motion_df['onset'] + curr_stream_start_dt
+                
+                # assert len(a_motion_df) == len(motion_annots_df), f"len(a_motion_df): {len(a_motion_df)}, len(motion_annots_df): {len(motion_annots_df)}"
+                # a_motion_df['duration'] = deepcopy(motion_annots_df['duration'].to_numpy()) ##FIX
+                # a_motion_df['description'] = 'BAD_motion'
+                an_all_annotations_dfs.append(an_is_moving_annots_df)
+
+                # a_motion_df['onset'] = (a_motion_df['onset'] - curr_stream_start_dt).dt.total_seconds()
+                # motion_annots = mne.Annotations(onset=a_motion_df['onset'].to_numpy(), duration=a_motion_df['duration'].to_numpy(), description=a_motion_df['description'].to_numpy(), orig_time=curr_stream_start_dt)
+
+                # ## instead align to EEG's meas_time
+                # curr_eeg_meas_date: datetime = an_eeg_ds.info.get('meas_date')
+                # a_motion_df['onset'] = (a_motion_df['onset'] - curr_eeg_meas_date).dt.total_seconds()
+                # motion_annots = mne.Annotations(onset=a_motion_df['onset'].to_numpy(), duration=a_motion_df['duration'].to_numpy(), description=a_motion_df['description'].to_numpy(), orig_time=curr_eeg_meas_date)
+
+                # an_eeg_ds = MNEHelpers.merge_annotations(raw=an_eeg_ds, new_annots=motion_annots, align_to_Raw_meas_time=True)
+                # an_eeg_ds = MNEHelpers.merge_annotations(raw=an_eeg_ds, new_annots=motion_annots, align_to_Raw_meas_time=False)
+                
             ## END for an_motion_raw_ds in raws_...
 
 
@@ -1287,8 +1343,8 @@ class LabRecorderXDF:
              
             # an_all_annotations_df = pd.concat([v.to_data_frame('datetime') for v in an_all_annotations])
 
-            if len(an_all_annotations) > 0:
-                an_all_annotations_df = pd.concat(an_all_annotations)
+            if len(an_all_annotations_dfs) > 0:
+                an_all_annotations_df = pd.concat(an_all_annotations_dfs)
                 # df = an_all_annotations_df
                 # time_col_name: str = 'onset'
                 # df[time_col_name] = pd.to_datetime(df[time_col_name], errors='coerce')
@@ -1306,7 +1362,10 @@ class LabRecorderXDF:
 
                 # an_all_annotations_df
                 # [v.to_data_frame('ms') for v in an_all_annotations]
-                final_annots = mne.Annotations(onset=an_all_annotations_df['onset'].to_numpy(), duration=an_all_annotations_df['duration'].to_numpy(), description=an_all_annotations_df['description'].to_numpy(), orig_time=None) ## set orig_time=None
+                # final_annots = mne.Annotations(onset=an_all_annotations_df['onset'].to_numpy(), duration=an_all_annotations_df['duration'].to_numpy(), description=an_all_annotations_df['description'].to_numpy(), orig_time=None) ## set orig_time=None
+
+                final_annots = mne.Annotations(onset=an_all_annotations_df['onset'].to_numpy(), duration=an_all_annotations_df['duration'].to_numpy(), description=an_all_annotations_df['description'].to_numpy(), orig_time=None)
+
                 an_eeg_ds = MNEHelpers.merge_annotations(raw=an_eeg_ds, new_annots=final_annots, align_to_Raw_meas_time=False)
                 if not an_eeg_ds.debug_test_annotations_timestamps():
                     raise

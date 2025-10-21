@@ -49,13 +49,13 @@ class MotionData:
         # # Compute quaternions from gyro and accelerometer data
         # motion_analysis_results['quaternion_df'] = cls.compute_quaternions(motion.to_data_frame())
 
-        annots = MotionData.find_high_accel_periods(raw_motion, total_accel_threshold=0.5)
-        motion_analysis_results['bad_periods_annotations'] = {'high_accel': annots}
+        annots, an_is_moving_annots_df = MotionData.find_high_accel_periods(raw_motion, total_accel_threshold=0.5)
+        motion_analysis_results['bad_periods_annotations'] = {'high_accel': annots, 'high_accel_df': an_is_moving_annots_df}
         return motion_analysis_results
 
     
     @classmethod
-    def find_high_accel_periods(cls, a_ds: mne.io.Raw, total_accel_threshold: float = 0.5, should_set_bad_period_annotations: bool=True) -> mne.Annotations:
+    def find_high_accel_periods(cls, a_ds: mne.io.Raw, total_accel_threshold: float = 0.5, should_set_bad_period_annotations: bool=True, **set_annotations_kwargs) -> Tuple[mne.Annotations, pd.DataFrame]:
         """ finds periods of high acceleration in the dataset and returns annotations for those periods.
         """
         from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
@@ -65,18 +65,22 @@ class MotionData:
         a_motion_df: pd.DataFrame = a_ds.to_data_frame()       
         a_motion_df: pd.DataFrame = cls.compute_rolling_motion_change_detection(a_df=a_motion_df, total_change_threshold=total_accel_threshold, enable_global_normalization=True)
 
-        # a_rolling_motion_df = a_motion_df.rolling(window=4, step=1).mean()
-        # a_rolling_motion_df: pd.DataFrame = cls.compute_rolling_motion_change_detection(a_df=a_rolling_motion_df)
-        # a_motion_df: pd.DataFrame = MotionData.compute_rolling_motion_change_detection(a_df=a_motion_df)
+        # annots: mne.Annotations = MNEHelpers.convert_df_with_boolean_col_to_epochs(deepcopy(a_motion_df), is_bad_col_name="is_moving", annotation_description_name="BAD_motion", time_col_names='time', meas_date=meas_date) # , **kwargs
+        
+        is_moving_annots_df: pd.DataFrame = MNEHelpers.convert_df_with_boolean_col_to_epochs(deepcopy(a_motion_df), is_bad_col_name="is_moving", annotation_description_name="BAD_motion", time_col_names='time')        
+        is_moving_annots: mne.Annotations = mne.Annotations(onset=is_moving_annots_df['onsets'].to_numpy(), duration=is_moving_annots_df['durations'].to_numpy(), description=is_moving_annots_df['description'].to_numpy(), orig_time=meas_date)
 
-        annots: mne.Annotations = MNEHelpers.convert_df_with_boolean_col_to_epochs(a_motion_df, is_bad_col_name="is_moving", annotation_description_name="BAD_motion", time_col_names='time', meas_date=meas_date)
-        # annots: mne.Annotations = MNEHelpers.convert_df_with_boolean_col_to_epochs(a_rolling_motion_df, is_bad_col_name="is_moving", annotation_description_name="BAD_motion", time_col_names='time', meas_date=meas_date)
-        # annots
 
         if should_set_bad_period_annotations:
             ## sets the annotations to the raw object
-            a_ds.set_annotations(annots)
-        return annots
+            a_ds.set_annotations(is_moving_annots, **set_annotations_kwargs)
+        
+        return is_moving_annots, is_moving_annots_df
+
+        # annots: mne.Annotations = MNEHelpers.convert_df_with_boolean_col_to_epochs(a_rolling_motion_df, is_bad_col_name="is_moving", annotation_description_name="BAD_motion", time_col_names='time', meas_date=meas_date)
+        # annots
+
+        # return annots, a_motion_df
 
 
     @classmethod
