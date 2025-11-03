@@ -1410,7 +1410,7 @@ class LabRecorderXDF:
                 # stream_infos['xdf_dataset_idx'] = a_xdf_file.name ## just the name
                 _out_xdf_stream_infos_df.append(stream_infos)
                 
-            except (ValueError, KeyError, AssertionError) as e:
+            except (ValueError, KeyError, AssertionError, TypeError) as e:
                 print(f'\t failed with error: {e}\n\tskipping file.')
                 if fail_on_exception:
                     raise
