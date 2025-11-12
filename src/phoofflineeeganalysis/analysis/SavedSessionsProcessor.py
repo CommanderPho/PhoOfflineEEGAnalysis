@@ -655,17 +655,77 @@ class XDFDataStreamAccessor(object):
 
 
     @classmethod
-    def init_from_results(cls, _out_xdf_stream_infos_df: pd.DataFrame, active_only_out_eeg_raws: List):
+    def init_from_results(cls, _out_xdf_stream_infos_df: pd.DataFrame, active_only_out_eeg_raws: List, max_num_to_process: Optional[int] = None):
         num_sessions: int = len(active_only_out_eeg_raws)
 
+        # Determine which dataset indices to include based on recency (descending)
+        selected_indices: List[int]
+        if (max_num_to_process is not None) and (isinstance(max_num_to_process, int)) and (max_num_to_process > 0) and (num_sessions > 0):
+            recency_candidates: List[Tuple[int, datetime]] = []
+            for an_xdf_dataset_idx in np.arange(num_sessions):
+                a_raw = active_only_out_eeg_raws[an_xdf_dataset_idx]
+                recency_dt: Optional[datetime] = None
+
+                # 1) Prefer embedded recording timestamp from the raw object
+                try:
+                    recency_dt = a_raw.info.get('meas_date', None)
+                except Exception:
+                    recency_dt = None
+
+                # 2) Try dt columns already present on the incoming dataframe (if any)
+                if recency_dt is None:
+                    try:
+                        row = _out_xdf_stream_infos_df.loc[an_xdf_dataset_idx]
+                        for col_name in ('created_at_dt', 'first_timestamp_dt', 'last_timestamp_dt'):
+                            if (col_name in _out_xdf_stream_infos_df.columns) and pd.notnull(row.get(col_name)):
+                                recency_dt = row.get(col_name)
+                                break
+                    except Exception:
+                        pass
+
+                # 3) Fallback to filesystem mtime if we can resolve a path
+                if recency_dt is None:
+                    try:
+                        src_desc = a_raw.info.get('description', None)
+                        if isinstance(src_desc, str):
+                            src_path = Path(src_desc)
+                            if src_path.exists():
+                                recency_dt = datetime.fromtimestamp(src_path.stat().st_mtime, tz=timezone.utc)
+                    except Exception:
+                        pass
+
+                # 4) Final fallback: preserve order (later indices considered more recent)
+                if recency_dt is None:
+                    # Use a monotonic increasing surrogate based on index to preserve ordering
+                    # Newer (higher) indices sort after older ones
+                    recency_dt = datetime.fromtimestamp(float(an_xdf_dataset_idx), tz=timezone.utc)
+
+                recency_candidates.append((int(an_xdf_dataset_idx), recency_dt))
+
+            # Sort by recency descending and keep the top N
+            recency_candidates.sort(key=lambda t: (t[1] is None, t[1]), reverse=True)
+            selected_indices = [idx for idx, _ in recency_candidates[:max_num_to_process]]
+        else:
+            selected_indices = list(range(num_sessions))
+
+        # Build selected raws in the same order as selected indices
+        selected_raws: List = [active_only_out_eeg_raws[i] for i in selected_indices]
+
+        # Work on a subset of the dataframe corresponding to selected indices
         xdf_stream_infos_df: pd.DataFrame = deepcopy(_out_xdf_stream_infos_df)
+        try:
+            xdf_stream_infos_df = xdf_stream_infos_df.loc[selected_indices]
+        except Exception:
+            xdf_stream_infos_df = xdf_stream_infos_df.iloc[selected_indices]
+
+        # Initialize/ensure columns exist
         xdf_stream_infos_df['xdf_dataset_idx'] = -1
         xdf_stream_infos_df['recording_datetime'] = datetime.now()
         xdf_stream_infos_df['recording_day_date'] = datetime.now()
                 
 
-        for an_xdf_dataset_idx in np.arange(num_sessions):
-            a_raw = active_only_out_eeg_raws[an_xdf_dataset_idx]
+        # Populate per-selected dataset metadata
+        for an_xdf_dataset_idx, a_raw in zip(selected_indices, selected_raws):
             a_meas_date = a_raw.info.get('meas_date')
             a_meas_day_date = a_meas_date.replace(hour=0, minute=0, second=0, microsecond=0)
             xdf_stream_infos_df.loc[an_xdf_dataset_idx, 'recording_datetime'] = a_meas_date
