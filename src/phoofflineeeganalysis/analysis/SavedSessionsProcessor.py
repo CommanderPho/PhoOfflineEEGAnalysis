@@ -799,7 +799,7 @@ class LabRecorderXDF:
     datasets: List[mne.io.Raw] = field(default=None)
     
     @classmethod
-    def init_from_lab_recorder_xdf_file(cls, a_xdf_file: Path):
+    def init_from_lab_recorder_xdf_file(cls, a_xdf_file: Path, debug_print: bool=False):
         """
 
             Conclusions: `stream_clock_times` is not really needed if auto-sync is working.
@@ -914,7 +914,8 @@ class LabRecorderXDF:
         file_datetime: datetime = datetime.strptime(header['info']['datetime'][0], "%Y-%m-%dT%H:%M:%S%z") # '2025-09-11T17:04:20-0400' -> datetime.datetime(2025, 9, 11, 17, 4, 20, tzinfo=datetime.timezone(datetime.timedelta(days=-1, seconds=72000)))           
         file_datetime = file_datetime.astimezone(timezone.utc)
              
-        print(f'file_datetime: {readable_dt_str(file_datetime)}')
+        if debug_print:
+            print(f'file_datetime: {readable_dt_str(file_datetime)}')
 
         ## claims that ['time_stamps'] are pre-synchronized across streams
 
@@ -993,13 +994,15 @@ class LabRecorderXDF:
                 stream_last_timestamp = pd.Timedelta(seconds=stream_last_timestamp)
 
                 stream_approx_dur_sec: float = (stream_last_timestamp - stream_first_timestamp).total_seconds()
-                print(f'\tstream_approx_dur_sec: {stream_approx_dur_sec}')
+                if debug_print:
+                    print(f'\tstream_approx_dur_sec: {stream_approx_dur_sec}')
 
                 stream_timestamps = deepcopy(np.array(stream['time_stamps']))
                 stream_clock_times = deepcopy(np.array(stream['clock_times']))
 
-                print(f'\tstream_timestamps: {stream_timestamps.tolist()}')
-                print(f'\tstream_clock_times: {stream_clock_times.tolist()}')
+                if debug_print:
+                    print(f'\tstream_timestamps: {stream_timestamps.tolist()}')
+                    print(f'\tstream_clock_times: {stream_clock_times.tolist()}')
 
                 zeroed_stream_timestamps = deepcopy(stream_timestamps)
                 zeroed_stream_clock_times = deepcopy(stream_clock_times)
@@ -1019,8 +1022,9 @@ class LabRecorderXDF:
                 ## OUTPUTS: stream_datetimes
 
                 ## post-zeroed:
-                print(f'\tpost-zeroed stream_timestamps: {stream_timestamps.tolist()}')
-                print(f'\tpost-zeroed stream_clock_times: {stream_clock_times.tolist()}')
+                if debug_print:
+                    print(f'\tpost-zeroed stream_timestamps: {stream_timestamps.tolist()}')
+                    print(f'\tpost-zeroed stream_clock_times: {stream_clock_times.tolist()}')
 
                 ## STREAM OUTPUTS: stream_timestamps, stream_clock_times, zeroed_stream_timestamps, zeroed_stream_clock_times, zeroed_stream_timestamps_dt, stream_datetimes
                 # a_raw_df: pd.DataFrame = pd.DataFrame(dict(onset=zeroed_stream_timestamps, onset_dt=zeroed_stream_timestamps_dt, duration=([0.0] * len(zeroed_stream_timestamps_dt)), description=logger_strings))
@@ -1088,9 +1092,6 @@ class LabRecorderXDF:
         ## END for stream in streams...
 
         stream_infos: pd.DataFrame = pd.DataFrame.from_records(stream_infos)
-        stream_infos
-
-
         stream_infos = stream_infos.sort_values('stream_start_datetime', ascending=True, inplace=False)
         earliest_stream_start_datetime: datetime = np.nanmin(stream_infos['stream_start_datetime'].to_numpy()) # Timestamp('2025-10-20 18:28:33-0400', tz='US/Eastern')
         stream_infos['stream_start_datetime_rel_to_earliest'] = (stream_infos['stream_start_datetime'] - earliest_stream_start_datetime) #.dt.total_seconds() #.to_numpy().total_seconds()
@@ -1118,10 +1119,7 @@ class LabRecorderXDF:
             # Name: stream_start_datetime, dtype: float64
 
 
-        np.nanmin(stream_infos['stream_start_lsl_local_offset_seconds'])
-        
-
-
+        # np.nanmin(stream_infos['stream_start_lsl_local_offset_seconds'])
         earliest_stream_start_lsl_local_offset_seconds: float = np.nanmin(stream_infos['stream_start_lsl_local_offset_seconds'])
 
         stream_infos['earliest_stream_rel_lsl_local_offset_seconds'] = stream_infos['stream_start_lsl_local_offset_seconds'] - earliest_stream_start_lsl_local_offset_seconds
@@ -1136,7 +1134,6 @@ class LabRecorderXDF:
         for k, df in streams_timestamp_dfs.items():
             earliest_stream_zeroed_stream_timestamps_dict[k] = df['stream_timestamps'] - absolute_earliest_ts_sec
         stream_earliest_timestamp_sec_dict = {k:np.nanmin(df['stream_timestamps']) }
-
 
 
         time_col_name: str = 'onset'
@@ -1268,9 +1265,6 @@ class LabRecorderXDF:
 
 
         ## END for an_eeg_ds in raws_dict.get(DataModalityType.EEG.value, [])...
-        
-
-
         return stream_infos, raws, raws_dict
         
 
