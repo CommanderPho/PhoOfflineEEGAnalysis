@@ -142,6 +142,8 @@ sso: SavedSessionsProcessor = SavedSessionsProcessor(eeg_recordings_file_path=ee
 included_xdf_file_names = None ## include all 
 included_xdf_file_names
 
+should_write_final_merged_eeg_fif: bool = True
+# should_write_final_merged_eeg_fif: bool = False
 
 lab_recorder_output_path = Path(r"E:\Dropbox (Personal)\Databases\UnparsedData\LabRecorderStudies\sub-P001").resolve()
 assert lab_recorder_output_path.exists()
@@ -149,8 +151,7 @@ assert lab_recorder_output_path.exists()
 labRecorder_PostProcessed_path: Path = sso.eeg_analyzed_parent_export_path.joinpath(f'LabRecorder_PostProcessed')
 labRecorder_PostProcessed_path.mkdir(exist_ok=True)
 
-should_write_final_merged_eeg_fif: bool = True
-# should_write_final_merged_eeg_fif: bool = False
+
 
 # Parallel XDF file processing
 from phoofflineeeganalysis.analysis.MNE_helpers import DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, RawExtended, up_convert_raw_objects, up_convert_raw_obj
@@ -160,11 +161,21 @@ assert lab_recorder_output_path.exists()
 
 lab_recorder_xdf_files: list[Path] = list(lab_recorder_output_path.glob('*.xdf'))
 n_total_found_files: int = len(lab_recorder_xdf_files)
+
+# Filter by included file names if specified
 if included_xdf_file_names is not None:
     print(f'limiting to included_xdf_file_names: {included_xdf_file_names}...')
     lab_recorder_xdf_files = [v for v in lab_recorder_xdf_files if v.name in included_xdf_file_names]
     n_filtered_found_files: int = len(lab_recorder_xdf_files)
     print(f'\tlimited to {n_filtered_found_files}/{n_total_found_files} files')
+
+# Limit to n_most_recent_sessions_to_preprocess most recent files
+if n_most_recent_sessions_to_preprocess is not None and len(lab_recorder_xdf_files) > n_most_recent_sessions_to_preprocess:
+    print(f'Limiting to {n_most_recent_sessions_to_preprocess} most recent XDF files...')
+    # Sort by modification time (most recent first)
+    lab_recorder_xdf_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    lab_recorder_xdf_files = lab_recorder_xdf_files[:n_most_recent_sessions_to_preprocess]
+    print(f'\tLimited to {len(lab_recorder_xdf_files)}/{n_total_found_files} most recent files')
 
 if (labRecorder_PostProcessed_path is not None) and should_write_final_merged_eeg_fif:
     labRecorder_PostProcessed_path.mkdir(exist_ok=True)
