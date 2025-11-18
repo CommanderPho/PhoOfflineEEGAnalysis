@@ -1,78 +1,73 @@
-import mne
-mne.viz.set_browser_backend("qt")  # or "matplotlib"
-mne.set_config("MNE_BROWSER_BACKEND", "qt")  # or "matplotlib"
-# %gui qt
-
-import xarray as xr # Assuming you're using this
-import numpy as np   # For the example
-
-import xarray as xr
-import zarr
-import panel as pn
-import holoviews as hv
-hv.extension('bokeh', logo=False)
-
-import hvplot.xarray
-import hvplot.pandas
-# This line is crucial for displaying plots in a notebook
-hvplot.extension('bokeh') # You can also use 'matplotlib' or 'plotly'
-
-# hv.extension('bokeh')
-# hv.extension('matplotlib') # or 'matplotlib'
-# hv.extension('plotly') # or 'matplotlib'
-from holoviews import opts
-import panel as pn
-pn.extension()
-
-import IPython
-
-# Jupyter-lab enable printing for any line on its own (instead of just the last one in the cell)
-from IPython.core.interactiveshell import InteractiveShell
-InteractiveShell.ast_node_interactivity = "all"
-
-# Use MNE to load and analyze saved EEG and Motion recordings
-
-import time
+# Standard library imports
 import re
-from datetime import datetime, timezone
-
+import time
 import uuid
 from copy import deepcopy
-from typing import Dict, List, Tuple, Optional, Callable, Union, Any
-from nptyping import NDArray
-from matplotlib import pyplot as plt
-
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Dict, List, Tuple, Optional, Callable, Union, Any
+
+# Third-party imports
 import numpy as np
 import pandas as pd
+import xarray as xr
+import zarr
+from matplotlib import pyplot as plt
+from nptyping import NDArray
 from numpy.typing import NDArray
 
+# MNE imports
 import mne
 from mne import set_log_level
-from copy import deepcopy
-import mne
-
 from mne.io import read_raw
-
-datasets = []
-# mne.viz.set_browser_backend("Matplotlib")
-mne.viz.set_browser_backend("qt")
-
 from mne_lsl.player import PlayerLSL as Player
 from mne_lsl.stream import StreamLSL as Stream
-from phopylslhelper.easy_time_sync import EasyTimeSyncParsingMixin, readable_dt_str, from_readable_dt_str
 
-from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
+# Visualization imports
+import holoviews as hv
+import hvplot.pandas
+import hvplot.xarray
+import panel as pn
+from holoviews import opts
+
+# IPython imports
+import IPython
+from IPython.core.interactiveshell import InteractiveShell
+
+# Project-specific imports
+from phopylslhelper.easy_time_sync import EasyTimeSyncParsingMixin, readable_dt_str, from_readable_dt_str
+from phoofflineeeganalysis.analysis.MNE_helpers import (
+    MNEHelpers, DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, 
+    RawExtended, up_convert_raw_objects, up_convert_raw_obj
+)
 from phoofflineeeganalysis.analysis.historical_data import HistoricalData
 from phoofflineeeganalysis.analysis.motion_data import MotionData
 from phoofflineeeganalysis.analysis.EEG_data import EEGComputations, EEGData
 from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelper
-# from ..EegProcessing import bandpower
-# from phoofflineeeganalysis.EegProcessing import analyze_eeg_trends
 from phoofflineeeganalysis.EegVisualization import VisHelpers
-from phoofflineeeganalysis.analysis.SavedSessionsProcessor import SavedSessionsProcessor, SessionModality, DataModalityType
+from phoofflineeeganalysis.analysis.SavedSessionsProcessor import (
+    SavedSessionsProcessor, SessionModality, DataModalityType,
+    LabRecorderXDF, unwrap_single_element_listlike_if_needed, XDFDataStreamAccessor
+)
+from phoofflineeeganalysis.PendingNotebookCode import (
+    batch_compute_all_eeg_datasets, render_all_spectograms_to_high_quality_pdfs,
+    plot_all_spectograms, plot_session_spectogram
+)
 
+# Configuration
+mne.viz.set_browser_backend("qt")
+mne.set_config("MNE_BROWSER_BACKEND", "qt")
 set_log_level("WARNING")
+
+hv.extension('bokeh', logo=False)
+hvplot.extension('bokeh')
+pn.extension()
+
+# Jupyter-lab enable printing for any line on its own (instead of just the last one in the cell)
+InteractiveShell.ast_node_interactivity = "all"
+
+# Initialize datasets
+datasets = []
 
 
 # db_root_path = Path('/content/drive/MyDrive/Databases').resolve()
@@ -113,7 +108,7 @@ sso: SavedSessionsProcessor = SavedSessionsProcessor(eeg_recordings_file_path=ee
                                                      headset_motion_recordings_file_path=headset_motion_recordings_file_path, WhisperVideoTranscripts_LSL_Converted_file_path=WhisperVideoTranscripts_LSL_Converted, pho_log_to_LSL_recordings_path=pho_log_to_LSL_recordings_path,
                                                      eeg_analyzed_parent_export_path=eeg_analyzed_parent_export_path, 
                                                      n_most_recent_sessions_to_preprocess=n_most_recent_sessions_to_preprocess, 
-                                                    should_load_data=True, should_load_preprocessed=False,
+                                                     should_load_data=True, should_load_preprocessed=False,
                                                     #  should_load_data=True, should_load_preprocessed=True,
 													)
 # included_xdf_file_names = [
@@ -139,11 +134,7 @@ sso: SavedSessionsProcessor = SavedSessionsProcessor(eeg_recordings_file_path=ee
 
 included_xdf_file_names = None ## include all 
 included_xdf_file_names
-# 2025-09-18 - LabRecorder XDF Imports
-from phoofflineeeganalysis.analysis.EEG_data import EEGData
-from phoofflineeeganalysis.analysis.MNE_helpers import DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, RawExtended, up_convert_raw_objects, up_convert_raw_obj
-from phoofflineeeganalysis.analysis.SavedSessionsProcessor import LabRecorderXDF, unwrap_single_element_listlike_if_needed
-from phoofflineeeganalysis.analysis.SavedSessionsProcessor import XDFDataStreamAccessor
+
 
 lab_recorder_output_path = Path(r"E:\Dropbox (Personal)\Databases\UnparsedData\LabRecorderStudies\sub-P001").resolve()
 assert lab_recorder_output_path.exists()
@@ -153,9 +144,73 @@ labRecorder_PostProcessed_path.mkdir(exist_ok=True)
 
 should_write_final_merged_eeg_fif: bool = True
 # should_write_final_merged_eeg_fif: bool = False
-_out_eeg_raw, _out_xdf_stream_infos_df, lab_recorder_xdf_files = LabRecorderXDF.load_and_process_all(lab_recorder_output_path=lab_recorder_output_path, 
-                                                                                                     labRecorder_PostProcessed_path=labRecorder_PostProcessed_path, should_write_final_merged_eeg_fif=should_write_final_merged_eeg_fif,
-                                                                                                     included_xdf_file_names=included_xdf_file_names, fail_on_exception=False)
+
+# Expanded inline from LabRecorderXDF.load_and_process_all()
+from phoofflineeeganalysis.analysis.MNE_helpers import DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, RawExtended, up_convert_raw_objects, up_convert_raw_obj
+from phoofflineeeganalysis.analysis.EEG_data import EEGData
+
+assert lab_recorder_output_path.exists()
+
+lab_recorder_xdf_files: list[Path] = list(lab_recorder_output_path.glob('*.xdf'))
+n_total_found_files: int = len(lab_recorder_xdf_files)
+if included_xdf_file_names is not None:
+    print(f'limiting to included_xdf_file_names: {included_xdf_file_names}...')
+    lab_recorder_xdf_files = [v for v in lab_recorder_xdf_files if v.name in included_xdf_file_names]
+    n_filtered_found_files: int = len(lab_recorder_xdf_files)
+    print(f'\tlimited to {n_filtered_found_files}/{n_total_found_files} files')
+
+if (labRecorder_PostProcessed_path is not None) and should_write_final_merged_eeg_fif:
+    labRecorder_PostProcessed_path.mkdir(exist_ok=True)
+
+_out_eeg_raw = []
+_out_xdf_stream_infos_df = []
+
+for an_xdf_file_idx, a_xdf_file in enumerate(lab_recorder_xdf_files):
+    print(f'trying to process XDF file {an_xdf_file_idx}/{len(lab_recorder_xdf_files)}: "{a_xdf_file.as_posix()}"...')
+    try:
+        stream_infos, raws, raws_dict = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=a_xdf_file)
+        eeg_raws = raws_dict.get(DataModalityType.EEG.value, [])
+        if len(eeg_raws) != 1:
+             raise ValueError(f'for file "{a_xdf_file.as_posix()}": len(eeg_raws): {len(eeg_raws)}, but only handle the single eeg file case.')
+        else:
+            eeg_raw = eeg_raws[0]        
+
+        stream_infos['lab_recorder_xdf_file_idx'] = an_xdf_file_idx
+        stream_infos['xdf_dataset_idx'] = len(_out_xdf_stream_infos_df) ## the actual index of the good datsets
+        stream_infos['xdf_filename'] = a_xdf_file.name ## just the name
+
+        if should_write_final_merged_eeg_fif:
+            eeg_raw, a_lab_recorder_exports_filepaths_dict = LabRecorderXDF.save_post_processed_to_fif(
+                raws_dict=raws_dict,
+                a_xdf_file=a_xdf_file,
+                labRecorder_PostProcessed_path=labRecorder_PostProcessed_path,
+            )
+            if a_lab_recorder_exports_filepaths_dict is not None:
+                for a_format, an_export_path in a_lab_recorder_exports_filepaths_dict.items():
+                    stream_infos[f'proccessed_{a_format}_filename'] = an_export_path.name ## just the name
+
+        eeg_raw = up_convert_raw_obj(eeg_raw)
+        EEGData.set_montage(datasets_EEG=[eeg_raw])
+        eeg_raw.debug_test_annotations_timestamps()
+        _out_eeg_raw.append(eeg_raw)
+        _out_xdf_stream_infos_df.append(stream_infos)
+        
+    except (ValueError, KeyError, AssertionError, TypeError) as e:
+        print(f'\t failed with error: {e}\n\tskipping file.')
+        # fail_on_exception is False, so continue
+        continue
+        
+    except Exception as e:
+        print(f'\t failed with error: {e}\n\tskipping file.')
+        raise
+
+_out_xdf_stream_infos_df = pd.concat(_out_xdf_stream_infos_df)
+_out_xdf_stream_infos_df = _out_xdf_stream_infos_df.set_index('xdf_dataset_idx')
+
+_out_eeg_raw = up_convert_raw_objects(_out_eeg_raw)
+_out_eeg_raw.sort(key=lambda r: (r.raw_timerange()[0] is None, r.raw_timerange()[0]))
+
+EEGData.set_montage(datasets_EEG=_out_eeg_raw)
 xdf_dataset_indicies = np.unique(deepcopy(_out_xdf_stream_infos_df).reset_index(drop=False, inplace=False)['xdf_dataset_idx'].to_numpy())
 n_unique_xdf_datasets: int = len(xdf_dataset_indicies)
 print(f'n_unique_xdf_datasets: {n_unique_xdf_datasets}')
@@ -166,9 +221,7 @@ _out_xdf_stream_infos_df
 
 
 
-from phoofflineeeganalysis.analysis.EEG_data import EEGComputations, EEGData
-from phoofflineeeganalysis.PendingNotebookCode import batch_compute_all_eeg_datasets, render_all_spectograms_to_high_quality_pdfs, plot_all_spectograms
-from phoofflineeeganalysis.PendingNotebookCode import plot_session_spectogram
+
 ## INPUTS: _out_eeg_raw
 # Process only the last 5 datasets using 4 workers:
 # limit_num_items: int = 150
@@ -179,7 +232,7 @@ active_only_out_eeg_raws, results = batch_compute_all_eeg_datasets(eeg_raws=_out
 # 1m 19.8s for 25 sessions
 
 
-from phoofflineeeganalysis.analysis.SavedSessionsProcessor import XDFDataStreamAccessor
+
 
 num_sessions: int = len(results)
 num_sessions
