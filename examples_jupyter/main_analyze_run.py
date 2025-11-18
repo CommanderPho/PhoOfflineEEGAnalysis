@@ -1,7 +1,9 @@
 # Standard library imports
+import os
 import re
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -145,7 +147,7 @@ labRecorder_PostProcessed_path.mkdir(exist_ok=True)
 should_write_final_merged_eeg_fif: bool = True
 # should_write_final_merged_eeg_fif: bool = False
 
-# Expanded inline from LabRecorderXDF.load_and_process_all()
+# Parallel XDF file processing
 from phoofflineeeganalysis.analysis.MNE_helpers import DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, RawExtended, up_convert_raw_objects, up_convert_raw_obj
 from phoofflineeeganalysis.analysis.EEG_data import EEGData
 
@@ -162,23 +164,34 @@ if included_xdf_file_names is not None:
 if (labRecorder_PostProcessed_path is not None) and should_write_final_merged_eeg_fif:
     labRecorder_PostProcessed_path.mkdir(exist_ok=True)
 
-_out_eeg_raw = []
-_out_xdf_stream_infos_df = []
+# Determine optimal number of workers
+max_workers = min(len(lab_recorder_xdf_files), (os.cpu_count() or 4))
+print(f"Processing {len(lab_recorder_xdf_files)} XDF files using {max_workers} parallel workers...")
 
-for an_xdf_file_idx, a_xdf_file in enumerate(lab_recorder_xdf_files):
-    print(f'trying to process XDF file {an_xdf_file_idx}/{len(lab_recorder_xdf_files)}: "{a_xdf_file.as_posix()}"...')
+# Initialize result containers
+_out_eeg_raw = [None] * len(lab_recorder_xdf_files)
+_out_xdf_stream_infos_df = [None] * len(lab_recorder_xdf_files)
+
+def process_single_xdf_file(idx_file_tuple):
+    """Process a single XDF file"""
+    an_xdf_file_idx, a_xdf_file = idx_file_tuple
     try:
+        print(f'  Processing XDF file {an_xdf_file_idx+1}/{len(lab_recorder_xdf_files)}: "{a_xdf_file.name}"...')
+        
+        # Load XDF file
         stream_infos, raws, raws_dict = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=a_xdf_file)
         eeg_raws = raws_dict.get(DataModalityType.EEG.value, [])
+        
         if len(eeg_raws) != 1:
-             raise ValueError(f'for file "{a_xdf_file.as_posix()}": len(eeg_raws): {len(eeg_raws)}, but only handle the single eeg file case.')
-        else:
-            eeg_raw = eeg_raws[0]        
-
+            raise ValueError(f'for file "{a_xdf_file.as_posix()}": len(eeg_raws): {len(eeg_raws)}, but only handle the single eeg file case.')
+        
+        eeg_raw = eeg_raws[0]
+        
+        # Add metadata
         stream_infos['lab_recorder_xdf_file_idx'] = an_xdf_file_idx
-        stream_infos['xdf_dataset_idx'] = len(_out_xdf_stream_infos_df) ## the actual index of the good datsets
-        stream_infos['xdf_filename'] = a_xdf_file.name ## just the name
-
+        stream_infos['xdf_filename'] = a_xdf_file.name
+        
+        # Save post-processed data if requested
         if should_write_final_merged_eeg_fif:
             eeg_raw, a_lab_recorder_exports_filepaths_dict = LabRecorderXDF.save_post_processed_to_fif(
                 raws_dict=raws_dict,
@@ -187,36 +200,97 @@ for an_xdf_file_idx, a_xdf_file in enumerate(lab_recorder_xdf_files):
             )
             if a_lab_recorder_exports_filepaths_dict is not None:
                 for a_format, an_export_path in a_lab_recorder_exports_filepaths_dict.items():
-                    stream_infos[f'proccessed_{a_format}_filename'] = an_export_path.name ## just the name
-
+                    stream_infos[f'proccessed_{a_format}_filename'] = an_export_path.name
+        
+        # Up-convert and set montage
         eeg_raw = up_convert_raw_obj(eeg_raw)
         EEGData.set_montage(datasets_EEG=[eeg_raw])
         eeg_raw.debug_test_annotations_timestamps()
-        _out_eeg_raw.append(eeg_raw)
-        _out_xdf_stream_infos_df.append(stream_infos)
+        
+
+        ## Do post-processing stage
+        # a_raw = eeg_raw
+        result = None
+        try:
+            meas_date = eeg_raw.info.get('meas_date', 'Unknown')
+            print(f"  Processing dataset {an_xdf_file_idx+1}/{len(active_only_out_eeg_raws)} (meas_date: {meas_date})")
+            result = EEGComputations.run_all(raw=eeg_raw)
+            print(f"  Completed dataset {an_xdf_file_idx+1}/{len(active_only_out_eeg_raws)} (meas_date: {meas_date})")
+            # return an_xdf_file_idx, result
+        except Exception as e:
+            print(f"  ERROR processing dataset {an_xdf_file_idx+1}: {e}")
+            # return an_xdf_file_idx, None
+
+
+
+        print(f'  Completed XDF file {an_xdf_file_idx+1}/{len(lab_recorder_xdf_files)}: "{a_xdf_file.name}"')
+        return an_xdf_file_idx, eeg_raw, stream_infos
         
     except (ValueError, KeyError, AssertionError, TypeError) as e:
-        print(f'\t failed with error: {e}\n\tskipping file.')
-        # fail_on_exception is False, so continue
-        continue
+        print(f'  ERROR in XDF file {an_xdf_file_idx+1}: {e}\n  Skipping file.')
+        return an_xdf_file_idx, None, None
         
     except Exception as e:
-        print(f'\t failed with error: {e}\n\tskipping file.')
+        print(f'  EXCEPTION in XDF file {an_xdf_file_idx+1}: {e}')
         raise
 
+
+
+
+
+
+
+
+
+
+
+
+
+# Parallel processing using ThreadPoolExecutor
+with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    # Submit all tasks
+    future_to_idx = {
+        executor.submit(process_single_xdf_file, (idx, xdf_file)): idx 
+        for idx, xdf_file in enumerate(lab_recorder_xdf_files)
+    }
+    
+    # Collect results as they complete
+    for future in as_completed(future_to_idx):
+        try:
+            idx, eeg_raw, stream_infos = future.result()
+            _out_eeg_raw[idx] = eeg_raw
+            _out_xdf_stream_infos_df[idx] = stream_infos
+        except Exception as e:
+            idx = future_to_idx[future]
+            print(f"  EXCEPTION collecting result for file {idx+1}: {e}")
+            _out_eeg_raw[idx] = None
+            _out_xdf_stream_infos_df[idx] = None
+
+# Filter out failed files
+valid_indices = [i for i, (raw, info) in enumerate(zip(_out_eeg_raw, _out_xdf_stream_infos_df)) if raw is not None and info is not None]
+_out_eeg_raw = [_out_eeg_raw[i] for i in valid_indices]
+_out_xdf_stream_infos_df = [_out_xdf_stream_infos_df[i] for i in valid_indices]
+
+# Add xdf_dataset_idx to stream_infos
+for dataset_idx, stream_infos in enumerate(_out_xdf_stream_infos_df):
+    stream_infos['xdf_dataset_idx'] = dataset_idx
+
+# Combine stream infos
 _out_xdf_stream_infos_df = pd.concat(_out_xdf_stream_infos_df)
 _out_xdf_stream_infos_df = _out_xdf_stream_infos_df.set_index('xdf_dataset_idx')
 
+# Up-convert and sort
 _out_eeg_raw = up_convert_raw_objects(_out_eeg_raw)
 _out_eeg_raw.sort(key=lambda r: (r.raw_timerange()[0] is None, r.raw_timerange()[0]))
 
-EEGData.set_montage(datasets_EEG=_out_eeg_raw)
+# Set montage for all datasets
+EEGData.set_montage(datasets_EEG=_out_eeg_raw)  # pyright: ignore[reportUnknownMemberType]
+
 xdf_dataset_indicies = np.unique(deepcopy(_out_xdf_stream_infos_df).reset_index(drop=False, inplace=False)['xdf_dataset_idx'].to_numpy())
 n_unique_xdf_datasets: int = len(xdf_dataset_indicies)
 print(f'n_unique_xdf_datasets: {n_unique_xdf_datasets}')
-## 2m 30s
 
-_out_xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=_out_eeg_raw) # [_out_xdf_stream_infos_df['name'] == 'Epoc X']
+_out_xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=_out_eeg_raw)
 _out_xdf_stream_infos_df
 
 
