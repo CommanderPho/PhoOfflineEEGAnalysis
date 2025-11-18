@@ -66,7 +66,7 @@ hvplot.extension('bokeh')
 pn.extension()
 
 # Jupyter-lab enable printing for any line on its own (instead of just the last one in the cell)
-InteractiveShell.ast_node_interactivity = "all"
+# InteractiveShell.ast_node_interactivity = "all"
 
 # Initialize datasets
 datasets = []
@@ -95,6 +95,11 @@ pho_log_to_LSL_recordings_path: Path = db_root_path.joinpath('UnparsedData/PhoLo
 eeg_analyzed_parent_export_path = db_root_path.joinpath('AnalysisData/MNE_preprocessed').resolve()
 pickled_data_path = db_root_path.joinpath('AnalysisData/MNE_preprocessed/PICKLED_COLLECTION').resolve()
 assert pickled_data_path.exists()
+
+outputs_root_folder: Path = Path('L:/AITEMP/PhoOfflineEEGAnalysisOutputs').resolve()
+assert outputs_root_folder.exists()
+
+
 
 
 # n_most_recent_sessions_to_preprocess: int = None # None means all sessions
@@ -171,6 +176,9 @@ print(f"Processing {len(lab_recorder_xdf_files)} XDF files using {max_workers} p
 # Initialize result containers
 _out_eeg_raw = [None] * len(lab_recorder_xdf_files)
 _out_xdf_stream_infos_df = [None] * len(lab_recorder_xdf_files)
+_out_results = [None] * len(lab_recorder_xdf_files)
+
+
 
 def process_single_xdf_file(idx_file_tuple):
     """Process a single XDF file"""
@@ -213,9 +221,9 @@ def process_single_xdf_file(idx_file_tuple):
         result = None
         try:
             meas_date = eeg_raw.info.get('meas_date', 'Unknown')
-            print(f"  Processing dataset {an_xdf_file_idx+1}/{len(active_only_out_eeg_raws)} (meas_date: {meas_date})")
+            print(f"  Processing dataset {an_xdf_file_idx+1}/{len(eeg_raws)} (meas_date: {meas_date})")
             result = EEGComputations.run_all(raw=eeg_raw)
-            print(f"  Completed dataset {an_xdf_file_idx+1}/{len(active_only_out_eeg_raws)} (meas_date: {meas_date})")
+            print(f"  Completed dataset {an_xdf_file_idx+1}/{len(eeg_raws)} (meas_date: {meas_date})")
             # return an_xdf_file_idx, result
         except Exception as e:
             print(f"  ERROR processing dataset {an_xdf_file_idx+1}: {e}")
@@ -224,11 +232,11 @@ def process_single_xdf_file(idx_file_tuple):
 
 
         print(f'  Completed XDF file {an_xdf_file_idx+1}/{len(lab_recorder_xdf_files)}: "{a_xdf_file.name}"')
-        return an_xdf_file_idx, eeg_raw, stream_infos
+        return an_xdf_file_idx, eeg_raw, stream_infos, result
         
     except (ValueError, KeyError, AssertionError, TypeError) as e:
         print(f'  ERROR in XDF file {an_xdf_file_idx+1}: {e}\n  Skipping file.')
-        return an_xdf_file_idx, None, None
+        return an_xdf_file_idx, None, None, None
         
     except Exception as e:
         print(f'  EXCEPTION in XDF file {an_xdf_file_idx+1}: {e}')
@@ -237,16 +245,9 @@ def process_single_xdf_file(idx_file_tuple):
 
 
 
-
-
-
-
-
-
-
-
-
-# Parallel processing using ThreadPoolExecutor
+# ---------------------------------------------------------------------------- #
+#                 Parallel processing using ThreadPoolExecutor                 #
+# ---------------------------------------------------------------------------- #
 with ThreadPoolExecutor(max_workers=max_workers) as executor:
     # Submit all tasks
     future_to_idx = {
@@ -257,14 +258,18 @@ with ThreadPoolExecutor(max_workers=max_workers) as executor:
     # Collect results as they complete
     for future in as_completed(future_to_idx):
         try:
-            idx, eeg_raw, stream_infos = future.result()
+            idx, eeg_raw, stream_infos, result = future.result()
             _out_eeg_raw[idx] = eeg_raw
             _out_xdf_stream_infos_df[idx] = stream_infos
+            _out_results[idx] = result
         except Exception as e:
             idx = future_to_idx[future]
             print(f"  EXCEPTION collecting result for file {idx+1}: {e}")
             _out_eeg_raw[idx] = None
             _out_xdf_stream_infos_df[idx] = None
+            _out_results[idx] = None
+
+
 
 # Filter out failed files
 valid_indices = [i for i, (raw, info) in enumerate(zip(_out_eeg_raw, _out_xdf_stream_infos_df)) if raw is not None and info is not None]
@@ -293,9 +298,6 @@ print(f'n_unique_xdf_datasets: {n_unique_xdf_datasets}')
 _out_xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=_out_eeg_raw)
 _out_xdf_stream_infos_df
 
-
-
-
 ## INPUTS: _out_eeg_raw
 # Process only the last 5 datasets using 4 workers:
 # limit_num_items: int = 150
@@ -304,9 +306,6 @@ active_only_out_eeg_raws, results = batch_compute_all_eeg_datasets(eeg_raws=_out
 
 ## OUTPUTS: active_only_out_eeg_raws, results
 # 1m 19.8s for 25 sessions
-
-
-
 
 num_sessions: int = len(results)
 num_sessions
@@ -335,8 +334,7 @@ extracted_comments_df = extracted_comments_df.rename(columns={'onset':'time', 'd
 extracted_comments_df
 
 # netcdf_save_path = Path("2025-10-16_saved_spectogram.nc")
-outputs_root_folder: Path = Path(r'L:\AITEMP\PhoOfflineEEGAnalysisOutputs').resolve()
-outputs_root_folder.exists()
+
 
 # netcdf_save_path = Path("2025-10-16_saved_spectogram.nc")
 netcdf_save_path: Path = outputs_root_folder.joinpath("2025-11-12_saved_spectogram.nc").resolve()
