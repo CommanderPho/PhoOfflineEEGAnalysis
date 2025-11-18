@@ -56,5 +56,6 @@
         "**/__pycache__": true,
     },
     "git.ignoreLimitWarning": true,
+    "python.languageServer": "None",
 
 }

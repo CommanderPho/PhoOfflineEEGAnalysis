@@ -11,6 +11,15 @@
 		},
 		{
 			"path": "../mnelab"
+		},
+		{
+			"path": "../LSL_REPOS/App-SigVisualizer"
+		},
+		{
+			"path": "../PhoLabStreamingReceiver"
+		},
+		{
+			"path": "../../../Desktop/LSL Tools/Pho LSL Repos/LSL_REPOS/App-XDFStreamer"
 		}
 	],
 	"settings": {
@@ -35,6 +44,7 @@
 			"statusBar.background": "#263825",
 			"statusBar.foreground": "#ffffff",
 			"sideBarSectionHeader.border": "#cecece"
-		}
+		},
+		"python.languageServer": "None"
 	}
 }
