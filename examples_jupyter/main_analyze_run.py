@@ -53,7 +53,7 @@ from phoofflineeeganalysis.analysis.SavedSessionsProcessor import (
 )
 from phoofflineeeganalysis.PendingNotebookCode import (
     batch_compute_all_eeg_datasets, render_all_spectograms_to_high_quality_pdfs,
-    plot_all_spectograms, plot_session_spectogram
+    plot_all_spectograms, plot_session_spectogram, ZarrSerialization, build_merged
 )
 
 # Configuration
@@ -272,9 +272,10 @@ with ThreadPoolExecutor(max_workers=max_workers) as executor:
 
 
 # Filter out failed files
-valid_indices = [i for i, (raw, info) in enumerate(zip(_out_eeg_raw, _out_xdf_stream_infos_df)) if raw is not None and info is not None]
+valid_indices = [i for i, (raw, info, result) in enumerate(zip(_out_eeg_raw, _out_xdf_stream_infos_df, _out_results)) if raw is not None and info is not None]
 _out_eeg_raw = [_out_eeg_raw[i] for i in valid_indices]
 _out_xdf_stream_infos_df = [_out_xdf_stream_infos_df[i] for i in valid_indices]
+_out_results = [_out_results[i] for i in valid_indices]
 
 # Add xdf_dataset_idx to stream_infos
 for dataset_idx, stream_infos in enumerate(_out_xdf_stream_infos_df):
@@ -284,9 +285,12 @@ for dataset_idx, stream_infos in enumerate(_out_xdf_stream_infos_df):
 _out_xdf_stream_infos_df = pd.concat(_out_xdf_stream_infos_df)
 _out_xdf_stream_infos_df = _out_xdf_stream_infos_df.set_index('xdf_dataset_idx')
 
-# Up-convert and sort
+# Up-convert and sort (with results following the same order)
 _out_eeg_raw = up_convert_raw_objects(_out_eeg_raw)
-_out_eeg_raw.sort(key=lambda r: (r.raw_timerange()[0] is None, r.raw_timerange()[0]))
+# Create sorting indices
+sort_indices = sorted(range(len(_out_eeg_raw)), key=lambda i: (_out_eeg_raw[i].raw_timerange()[0] is None, _out_eeg_raw[i].raw_timerange()[0]))
+_out_eeg_raw = [_out_eeg_raw[i] for i in sort_indices]
+_out_results = [_out_results[i] for i in sort_indices]
 
 # Set montage for all datasets
 EEGData.set_montage(datasets_EEG=_out_eeg_raw)  # pyright: ignore[reportUnknownMemberType]
@@ -298,21 +302,15 @@ print(f'n_unique_xdf_datasets: {n_unique_xdf_datasets}')
 _out_xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=_out_eeg_raw)
 _out_xdf_stream_infos_df
 
-## INPUTS: _out_eeg_raw
-# Process only the last 5 datasets using 4 workers:
-# limit_num_items: int = 150
-limit_num_items: int = 5
-active_only_out_eeg_raws, results = batch_compute_all_eeg_datasets(eeg_raws=_out_eeg_raw, limit_num_items=limit_num_items, max_workers = 4)
-
-## OUTPUTS: active_only_out_eeg_raws, results
-# 1m 19.8s for 25 sessions
+## Use the results already computed during parallel processing
+# No need to call batch_compute_all_eeg_datasets again since we already computed during XDF loading
+active_only_out_eeg_raws = _out_eeg_raw
+results = _out_results
 
 num_sessions: int = len(results)
-num_sessions
+print(f'Processed {num_sessions} sessions with EEG computations')
 
-# xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=active_only_out_eeg_raws)
 xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=active_only_out_eeg_raws)
-# xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df[_out_xdf_stream_infos_df['name'] == 'Epoc X'], active_only_out_eeg_raws=active_only_out_eeg_raws)
 xdf_stream_infos_df
 
 
@@ -326,19 +324,51 @@ for a_raw in active_only_out_eeg_raws:
         an_annotation_df = an_annotations.to_data_frame(time_format='datetime')
         an_annotation_df = an_annotation_df[np.logical_not(np.isin(an_annotation_df['description'], ignored_comment_descriptions))]
         _extracted_comments.append(an_annotation_df)
-        # an_annotation_df
 
+if _extracted_comments:
+    extracted_comments_df: pd.DataFrame = pd.concat(_extracted_comments)
+    extracted_comments_df = extracted_comments_df.rename(columns={'onset':'time', 'description':'text'}, inplace=False)
+    print(f'Extracted {len(extracted_comments_df)} comments/annotations')
+else:
+    print('No comments/annotations found')
 
-extracted_comments_df: pd.DataFrame = pd.concat(_extracted_comments)
-extracted_comments_df = extracted_comments_df.rename(columns={'onset':'time', 'description':'text'}, inplace=False)
-extracted_comments_df
+## Save results to Zarr format
+# Create a simple day_status_dict (you can customize this based on your needs)
+day_status_dict = {}
+for a_raw in active_only_out_eeg_raws:
+    a_meas_date = a_raw.info.get('meas_date')
+    if a_meas_date:
+        a_raw_key: str = a_meas_date.strftime("%Y-%m-%d/%H-%M-%S")
+        day_status_dict[a_raw_key] = 'cog_UNLABELED'  # Default status
 
-# netcdf_save_path = Path("2025-10-16_saved_spectogram.nc")
+# Save to Zarr
+zarr_out_path = outputs_root_folder.joinpath(f"2025-11-18_all_sessions_{len(active_only_out_eeg_raws)}_files.zarr").resolve()
+print(f'Saving {len(active_only_out_eeg_raws)} sessions to Zarr: "{zarr_out_path.as_posix()}"...')
+zarr_out_path = ZarrSerialization.save_sessions_as_zarr(
+    active_only_out_eeg_raws=active_only_out_eeg_raws, 
+    results=results, 
+    day_status_dict=day_status_dict, 
+    out_path=str(zarr_out_path)
+)
+zarr_out_path = Path(zarr_out_path)  # Convert back to Path
+print(f'Successfully saved to: "{zarr_out_path.as_posix()}"')
 
+# Build merged dataset for NetCDF export
+print('Building merged spectogram dataset...')
+combined_spectogram_ds, combined_spectogram_da = build_merged(
+    active_only_out_eeg_raws=active_only_out_eeg_raws, 
+    results=results, 
+    day_status_dict=day_status_dict,
+    only_include_sessions_with_status_entries=False
+)
 
-# netcdf_save_path = Path("2025-10-16_saved_spectogram.nc")
-netcdf_save_path: Path = outputs_root_folder.joinpath("2025-11-12_saved_spectogram.nc").resolve()
+# Save to NetCDF
+netcdf_save_path: Path = outputs_root_folder.joinpath(f"2025-11-18_saved_spectogram_{len(active_only_out_eeg_raws)}_files.nc").resolve()
+print(f'Saving spectogram to NetCDF: "{netcdf_save_path.as_posix()}"...')
 combined_spectogram_da.to_netcdf(netcdf_save_path)
-print(f'netcdf_save_path: "{netcdf_save_path.as_posix()}"')
-# combined_spectogram_da.to_
-# combined_spectogram_ds.to_netcdf(
+print(f'Successfully saved spectogram to: "{netcdf_save_path.as_posix()}"')
+
+print(f'\n=== Processing Complete ===')
+print(f'Total sessions processed: {len(active_only_out_eeg_raws)}')
+print(f'Zarr output: {zarr_out_path}')
+print(f'NetCDF output: {netcdf_save_path}')
