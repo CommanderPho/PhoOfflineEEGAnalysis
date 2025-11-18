@@ -57,6 +57,221 @@ from phoofflineeeganalysis.PendingNotebookCode import (
 )
 
 
+def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_folder: Path, 
+                                     freq_min: float = 1.0, freq_max: float = 40.0):
+    """
+    Export interactive HTML spectrograms for each EEG session using HoloViews.
+    
+    Creates individual HTML files for each session with:
+    - Interactive spectrogram heatmaps for each channel
+    - Zoomable/pannable time and frequency axes
+    - Hover tooltips showing exact values
+    - Session metadata in title
+    
+    Args:
+        active_only_out_eeg_raws: List of mne.io.Raw EEG sessions
+        results: List of computation results containing spectrogram data
+        output_folder: Path to save HTML files
+        freq_min: Minimum frequency to display (Hz)
+        freq_max: Maximum frequency to display (Hz)
+        
+    Returns:
+        List of Path objects for created HTML files
+        
+    Usage:
+        html_files = export_session_spectrograms_html(
+            active_only_out_eeg_raws, results, 
+            outputs_root_folder / "spectrograms_html"
+        )
+    """
+    output_folder = Path(output_folder)
+    output_folder.mkdir(parents=True, exist_ok=True)
+    
+    html_files = []
+    
+    for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
+        try:
+            # Get session metadata
+            meas_date = a_raw.info.get('meas_date')
+            if meas_date:
+                session_name = meas_date.strftime('%Y-%m-%d_%H-%M-%S')
+                session_title = meas_date.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                session_name = f"session_{idx:03d}"
+                session_title = f"Session {idx}"
+            
+            # Extract spectrogram data
+            spectogram_result_dict = a_result['spectogram']['spectogram_result_dict']
+            fs = a_result['spectogram']['fs']
+            
+            # Create HoloViews plots for each channel
+            channel_plots = []
+            
+            for ch_idx, (ch_name, (f, t, Sxx)) in enumerate(spectogram_result_dict.items()):
+                # Convert to dB scale
+                Sxx_db = 10 * np.log10(Sxx + 1e-12)
+                
+                # Filter frequency range
+                freq_mask = (f >= freq_min) & (f <= freq_max)
+                f_filtered = f[freq_mask]
+                Sxx_filtered = Sxx_db[freq_mask, :]
+                
+                # Create xarray DataArray for easier plotting
+                da = xr.DataArray(
+                    Sxx_filtered,
+                    coords={'frequency': f_filtered, 'time': t},
+                    dims=['frequency', 'time'],
+                    name=f'{ch_name}_power'
+                )
+                
+                # Create HoloViews image with hvplot
+                img = da.hvplot.image(
+                    x='time', y='frequency',
+                    cmap='viridis',
+                    clim=(Sxx_filtered.min(), Sxx_filtered.max()),
+                    title=f'{ch_name}',
+                    xlabel='Time (s)',
+                    ylabel='Frequency (Hz)',
+                    width=900,
+                    height=150,
+                    colorbar=True,
+                    tools=['hover', 'pan', 'wheel_zoom', 'box_zoom', 'reset'],
+                    hover_tooltips=[('Time', '@time{0.2f}s'), 
+                                   ('Freq', '@frequency{0.1f}Hz'), 
+                                   ('Power', '@image{0.2f}dB')]
+                )
+                
+                channel_plots.append(img)
+            
+            # Stack all channel plots vertically
+            layout = hv.Layout(channel_plots).cols(1)
+            
+            # Add overall title
+            layout = layout.opts(
+                title=f'EEG Spectrogram - {session_title}',
+                shared_axes=True
+            )
+            
+            # Save to HTML
+            html_path = output_folder / f"spectrogram_{session_name}.html"
+            hv.save(layout, html_path, backend='bokeh')
+            html_files.append(html_path)
+            
+            print(f'  Saved spectrogram HTML for session {idx+1}/{len(active_only_out_eeg_raws)}: {html_path.name}')
+            
+        except Exception as e:
+            print(f'  ERROR exporting session {idx}: {e}')
+            continue
+    
+    print(f'\nExported {len(html_files)} spectrogram HTML files to: {output_folder}')
+    return html_files
+
+
+def export_combined_spectrograms_html(active_only_out_eeg_raws, results, output_path: Path,
+                                      freq_min: float = 1.0, freq_max: float = 40.0,
+                                      max_sessions_per_page: int = 10):
+    """
+    Export a single HTML file with all session spectrograms in a scrollable layout.
+    
+    Creates one HTML file with:
+    - All sessions stacked vertically
+    - Session selector dropdown
+    - Synchronized time axes across channels
+    - Compact view for comparison
+    
+    Args:
+        active_only_out_eeg_raws: List of mne.io.Raw EEG sessions
+        results: List of computation results
+        output_path: Path for the output HTML file
+        freq_min: Minimum frequency (Hz)
+        freq_max: Maximum frequency (Hz)
+        max_sessions_per_page: Maximum sessions to include (for performance)
+        
+    Returns:
+        Path to created HTML file
+        
+    Usage:
+        html_file = export_combined_spectrograms_html(
+            active_only_out_eeg_raws, results,
+            outputs_root_folder / "all_spectrograms.html"
+        )
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Limit sessions for performance
+    n_sessions = min(len(active_only_out_eeg_raws), max_sessions_per_page)
+    
+    all_session_layouts = []
+    
+    for idx in range(n_sessions):
+        a_raw = active_only_out_eeg_raws[idx]
+        a_result = results[idx]
+        
+        try:
+            # Get session metadata
+            meas_date = a_raw.info.get('meas_date')
+            if meas_date:
+                session_title = meas_date.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                session_title = f"Session {idx}"
+            
+            # Extract spectrogram data
+            spectogram_result_dict = a_result['spectogram']['spectogram_result_dict']
+            
+            # Create compact channel plots
+            channel_plots = []
+            
+            for ch_name, (f, t, Sxx) in spectogram_result_dict.items():
+                Sxx_db = 10 * np.log10(Sxx + 1e-12)
+                
+                # Filter frequency
+                freq_mask = (f >= freq_min) & (f <= freq_max)
+                f_filtered = f[freq_mask]
+                Sxx_filtered = Sxx_db[freq_mask, :]
+                
+                # Create compact plot
+                da = xr.DataArray(
+                    Sxx_filtered,
+                    coords={'frequency': f_filtered, 'time': t},
+                    dims=['frequency', 'time']
+                )
+                
+                img = da.hvplot.image(
+                    x='time', y='frequency',
+                    cmap='viridis',
+                    title=f'{ch_name}',
+                    xlabel='',
+                    ylabel='Hz',
+                    width=800,
+                    height=80,
+                    colorbar=False,
+                    tools=['hover', 'pan', 'wheel_zoom', 'reset']
+                )
+                
+                channel_plots.append(img)
+            
+            # Create session layout
+            session_layout = hv.Layout(channel_plots).cols(1).opts(
+                title=f'{session_title}'
+            )
+            
+            all_session_layouts.append(session_layout)
+            
+        except Exception as e:
+            print(f'  ERROR processing session {idx}: {e}')
+            continue
+    
+    # Combine all sessions
+    combined = hv.Layout(all_session_layouts).cols(1)
+    
+    # Save to HTML
+    hv.save(combined, output_path, backend='bokeh')
+    
+    print(f'\nExported combined spectrogram HTML with {len(all_session_layouts)} sessions to: {output_path}')
+    return output_path
+
+
 # Configuration
 mne.viz.set_browser_backend("qt")
 mne.set_config("MNE_BROWSER_BACKEND", "qt")
@@ -74,7 +289,7 @@ datasets = []
 
 
 # db_root_path = Path('/content/drive/MyDrive/Databases').resolve()
-db_root_path = Path(r'E:/Dropbox (Personal)/Databases').resolve()
+db_root_path = Path('E:/Dropbox (Personal)/Databases').resolve()
 assert db_root_path.exists(), f"'{db_root_path.as_posix()}' does not exist!"
 
 # eeg_recordings_file_path: Path = Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/EmotivEpocX_EEGRecordings/fif').resolve()
@@ -100,13 +315,14 @@ assert pickled_data_path.exists()
 outputs_root_folder: Path = Path('L:/AITEMP/PhoOfflineEEGAnalysisOutputs').resolve()
 assert outputs_root_folder.exists()
 
-lab_recorder_output_path = Path(r"E:\Dropbox (Personal)\Databases\UnparsedData\LabRecorderStudies\sub-P001").resolve()
+lab_recorder_output_path = Path("E:/Dropbox (Personal)/Databases/UnparsedData/LabRecorderStudies/sub-P001").resolve()
 assert lab_recorder_output_path.exists()
 
 
 def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
         should_write_final_merged_eeg_fif: bool = True,
         included_xdf_file_names: Optional[List]=None, # Include all
+        should_load_preprocessed: bool = False,
     ):
     """ 
 
@@ -121,7 +337,7 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
                                                         headset_motion_recordings_file_path=headset_motion_recordings_file_path, WhisperVideoTranscripts_LSL_Converted_file_path=WhisperVideoTranscripts_LSL_Converted, pho_log_to_LSL_recordings_path=pho_log_to_LSL_recordings_path,
                                                         eeg_analyzed_parent_export_path=eeg_analyzed_parent_export_path, 
                                                         n_most_recent_sessions_to_preprocess=n_most_recent_sessions_to_preprocess, 
-                                                        should_load_data=True, should_load_preprocessed=False,
+                                                        should_load_data=True, should_load_preprocessed=should_load_preprocessed,
                                                         #  should_load_data=True, should_load_preprocessed=True,
                                                         )
 
@@ -312,10 +528,12 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
 
 if __name__ == "__main__":
 
-    # n_most_recent_sessions_to_preprocess: int = None # None means all sessions
+    n_most_recent_sessions_to_preprocess: int = None # None means all sessions
     # n_most_recent_sessions_to_preprocess: int = 35
-    n_most_recent_sessions_to_preprocess: int = 5
+    # n_most_recent_sessions_to_preprocess: int = 5
 
+    should_load_preprocessed: bool = False
+    # should_load_preprocessed: bool = True
 
     # should_write_final_merged_eeg_fif: bool = False
     should_write_final_merged_eeg_fif: bool = True
@@ -348,6 +566,7 @@ if __name__ == "__main__":
     sso, xdf_dataset_indicies, _out_xdf_stream_infos_df, active_only_out_eeg_raws, results = process_XDFs_main(included_xdf_file_names=included_xdf_file_names, 
                                                                                             n_most_recent_sessions_to_preprocess=n_most_recent_sessions_to_preprocess,
                                                                                             should_write_final_merged_eeg_fif=should_write_final_merged_eeg_fif,
+                                                                                            should_load_preprocessed=should_load_preprocessed,
     )
 
     ## Extract comments/notes/annotations/etc from the outputs
@@ -367,43 +586,68 @@ if __name__ == "__main__":
     else:
         print('No comments/annotations found')
 
-    ## Save results to Zarr format
-    # Create a simple day_status_dict (you can customize this based on your needs)
-    day_status_dict = {}
-    for a_raw in active_only_out_eeg_raws:
-        a_meas_date = a_raw.info.get('meas_date')
-        if a_meas_date:
-            a_raw_key: str = a_meas_date.strftime("%Y-%m-%d/%H-%M-%S")
-            day_status_dict[a_raw_key] = 'cog_UNLABELED'  # Default status
+    # ## Save results to Zarr format
+    # # Create a simple day_status_dict (you can customize this based on your needs)
+    # day_status_dict = {}
+    # for a_raw in active_only_out_eeg_raws:
+    #     a_meas_date = a_raw.info.get('meas_date')
+    #     if a_meas_date:
+    #         a_raw_key: str = a_meas_date.strftime("%Y-%m-%d/%H-%M-%S")
+    #         day_status_dict[a_raw_key] = 'cog_UNLABELED'  # Default status
 
-    # Save to Zarr
-    zarr_out_path = outputs_root_folder.joinpath(f"2025-11-18_all_sessions_{len(active_only_out_eeg_raws)}_files.zarr").resolve()
-    print(f'Saving {len(active_only_out_eeg_raws)} sessions to Zarr: "{zarr_out_path.as_posix()}"...')
-    zarr_out_path = ZarrSerialization.save_sessions_as_zarr(
-        active_only_out_eeg_raws=active_only_out_eeg_raws, 
-        results=results, 
-        day_status_dict=day_status_dict, 
-        out_path=str(zarr_out_path)
+    # # Save to Zarr
+    # zarr_out_path = outputs_root_folder.joinpath(f"2025-11-18_all_sessions_{len(active_only_out_eeg_raws)}_files.zarr").resolve()
+    # print(f'Saving {len(active_only_out_eeg_raws)} sessions to Zarr: "{zarr_out_path.as_posix()}"...')
+    # zarr_out_path = ZarrSerialization.save_sessions_as_zarr(
+    #     active_only_out_eeg_raws=active_only_out_eeg_raws, 
+    #     results=results, 
+    #     day_status_dict=day_status_dict, 
+    #     out_path=str(zarr_out_path)
+    # )
+    # zarr_out_path = Path(zarr_out_path)  # Convert back to Path
+    # print(f'Successfully saved to: "{zarr_out_path.as_posix()}"')
+
+    # # Build merged dataset for NetCDF export
+    # print('Building merged spectogram dataset...')
+    # combined_spectogram_ds, combined_spectogram_da = build_merged(
+    #     active_only_out_eeg_raws=active_only_out_eeg_raws, 
+    #     results=results, 
+    #     day_status_dict=day_status_dict,
+    #     only_include_sessions_with_status_entries=False
+    # )
+
+    # # Save to NetCDF
+    # netcdf_save_path: Path = outputs_root_folder.joinpath(f"2025-11-18_saved_spectogram_{len(active_only_out_eeg_raws)}_files.nc").resolve()
+    # print(f'Saving spectogram to NetCDF: "{netcdf_save_path.as_posix()}"...')
+    # combined_spectogram_da.to_netcdf(netcdf_save_path)
+    # print(f'Successfully saved spectogram to: "{netcdf_save_path.as_posix()}"')
+
+    # Export interactive HTML spectrograms
+    print('\nExporting interactive HTML spectrograms...')
+    html_output_folder = outputs_root_folder.joinpath('spectrograms_html')
+    print(f'\texporting to "{html_output_folder}"...')
+    html_files = export_session_spectrograms_html(
+        active_only_out_eeg_raws=active_only_out_eeg_raws,
+        results=results,
+        output_folder=html_output_folder,
+        freq_min=1.0,
+        freq_max=40.0
     )
-    zarr_out_path = Path(zarr_out_path)  # Convert back to Path
-    print(f'Successfully saved to: "{zarr_out_path.as_posix()}"')
-
-    # Build merged dataset for NetCDF export
-    print('Building merged spectogram dataset...')
-    combined_spectogram_ds, combined_spectogram_da = build_merged(
-        active_only_out_eeg_raws=active_only_out_eeg_raws, 
-        results=results, 
-        day_status_dict=day_status_dict,
-        only_include_sessions_with_status_entries=False
-    )
-
-    # Save to NetCDF
-    netcdf_save_path: Path = outputs_root_folder.joinpath(f"2025-11-18_saved_spectogram_{len(active_only_out_eeg_raws)}_files.nc").resolve()
-    print(f'Saving spectogram to NetCDF: "{netcdf_save_path.as_posix()}"...')
-    combined_spectogram_da.to_netcdf(netcdf_save_path)
-    print(f'Successfully saved spectogram to: "{netcdf_save_path.as_posix()}"')
+    print(f'\tdone.')
+    # # Export combined HTML view
+    # combined_html_path = outputs_root_folder.joinpath(f"2025-11-18_all_spectrograms_{len(active_only_out_eeg_raws)}_sessions.html")
+    # combined_html_file = export_combined_spectrograms_html(
+    #     active_only_out_eeg_raws=active_only_out_eeg_raws,
+    #     results=results,
+    #     output_path=combined_html_path,
+    #     freq_min=1.0,
+    #     freq_max=40.0,
+    #     max_sessions_per_page=10
+    # )
 
     print(f'\n=== Processing Complete ===')
     print(f'Total sessions processed: {len(active_only_out_eeg_raws)}')
-    print(f'Zarr output: {zarr_out_path}')
-    print(f'NetCDF output: {netcdf_save_path}')
+    # print(f'Zarr output: {zarr_out_path}')
+    # print(f'NetCDF output: {netcdf_save_path}')
+    print(f'Individual HTML spectrograms: {html_output_folder} ({len(html_files)} files)')
+    # print(f'Combined HTML spectrogram: {combined_html_file}')
