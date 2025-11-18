@@ -38,7 +38,6 @@ from IPython.core.interactiveshell import InteractiveShell
 
 # Project-specific imports
 from phopylslhelper.easy_time_sync import EasyTimeSyncParsingMixin, readable_dt_str, from_readable_dt_str
-from examples_jupyter.analyze_saved_EEG_Recordings import n_most_recent_sessions_to_preprocess
 from phoofflineeeganalysis.analysis.MNE_helpers import (
     MNEHelpers, DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, 
     RawExtended, up_convert_raw_objects, up_convert_raw_obj
@@ -56,9 +55,6 @@ from phoofflineeeganalysis.PendingNotebookCode import (
     batch_compute_all_eeg_datasets, render_all_spectograms_to_high_quality_pdfs,
     plot_all_spectograms, plot_session_spectogram, ZarrSerialization, build_merged
 )
-
-from phoofflineeeganalysis.analysis.MNE_helpers import DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, RawExtended, up_convert_raw_objects, up_convert_raw_obj
-from phoofflineeeganalysis.analysis.EEG_data import EEGData
 
 
 # Configuration
@@ -112,7 +108,11 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
         should_write_final_merged_eeg_fif: bool = True,
         included_xdf_file_names: Optional[List]=None, # Include all
     ):
+    """ 
 
+        from PhoOfflineEEGAnalysis.examples_jupyter.main_analyze_run import process_XDFs_main
+
+    """
 
 
     # SavedSessionProcessor
@@ -310,7 +310,7 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
 
 
 
-if __main__ == "__main__":
+if __name__ == "__main__":
 
     # n_most_recent_sessions_to_preprocess: int = None # None means all sessions
     # n_most_recent_sessions_to_preprocess: int = 35
