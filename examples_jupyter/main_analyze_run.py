@@ -528,9 +528,9 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
 
 if __name__ == "__main__":
 
-    n_most_recent_sessions_to_preprocess: int = None # None means all sessions
+    # n_most_recent_sessions_to_preprocess: int = None # None means all sessions
     # n_most_recent_sessions_to_preprocess: int = 35
-    # n_most_recent_sessions_to_preprocess: int = 5
+    n_most_recent_sessions_to_preprocess: int = 15
 
     should_load_preprocessed: bool = False
     # should_load_preprocessed: bool = True
