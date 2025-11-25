@@ -429,7 +429,8 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
                 for a_format, per_idx_dict in exports_dict.items():
                     export_path = per_idx_dict.get(0, None)
                     if export_path is not None:
-                        stream_infos[f'proccessed_{a_format}_filename'] = export_path.name
+                        # Ensure we handle both Path and string-like values
+                        stream_infos[f'proccessed_{a_format}_filename'] = Path(export_path).name
 
             # Up-convert and set montage
             eeg_raw = up_convert_raw_obj(eeg_raw)
