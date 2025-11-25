@@ -387,57 +387,73 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
         an_xdf_file_idx, a_xdf_file = idx_file_tuple
         try:
             print(f'  Processing XDF file {an_xdf_file_idx+1}/{len(lab_recorder_xdf_files)}: "{a_xdf_file.name}"...')
-            
+
             # Load XDF file
             stream_infos, raws, raws_dict = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=a_xdf_file)
             eeg_raws = raws_dict.get(DataModalityType.EEG.value, [])
-            
-            if len(eeg_raws) != 1:
-                raise ValueError(f'for file "{a_xdf_file.as_posix()}": len(eeg_raws): {len(eeg_raws)}, but only handle the single eeg file case.')
-            
-            eeg_raw = eeg_raws[0]
-            
-            # Add metadata
-            stream_infos['lab_recorder_xdf_file_idx'] = an_xdf_file_idx
-            stream_infos['xdf_filename'] = a_xdf_file.name
-            
-            # Save post-processed data if requested
+
+            if len(eeg_raws) == 0:
+                print(f'  WARN: no EEG streams found in "{a_xdf_file.as_posix()}". Skipping file.')
+                return an_xdf_file_idx, None, None, None
+
+            # Merge by device so we can handle multiple EEG streams per XDF
+            merged_eeg_raws, merge_meta = LabRecorderXDF.merge_eeg_streams_by_device(
+                eeg_raws=eeg_raws, strict_merge=False, debug_print=False
+            )
+            if len(merged_eeg_raws) == 0:
+                print(f'  WARN: could not produce any merged EEG datasets for "{a_xdf_file.as_posix()}". Skipping file.')
+                return an_xdf_file_idx, None, None, None
+
+            # Save post-processed data if requested (one set per merged dataset)
+            exports_dict = None
             if should_write_final_merged_eeg_fif:
-                eeg_raw, a_lab_recorder_exports_filepaths_dict = LabRecorderXDF.save_post_processed_to_fif(
+                _, exports_dict = LabRecorderXDF.save_post_processed_to_fif(
                     raws_dict=raws_dict,
                     a_xdf_file=a_xdf_file,
                     labRecorder_PostProcessed_path=labRecorder_PostProcessed_path,
                 )
-                if a_lab_recorder_exports_filepaths_dict is not None:
-                    for a_format, an_export_path in a_lab_recorder_exports_filepaths_dict.items():
-                        stream_infos[f'proccessed_{a_format}_filename'] = an_export_path.name
-            
+
+            # For the notebook path we currently return only the first merged EEG
+            # dataset for downstream plotting, but we still respect multi-stream
+            # handling for disk outputs.
+            eeg_raw = merged_eeg_raws[0]
+
+            # Add metadata
+            stream_infos['lab_recorder_xdf_file_idx'] = an_xdf_file_idx
+            stream_infos['xdf_filename'] = a_xdf_file.name
+            stream_infos['eeg_device_group_idx'] = 0
+            stream_infos['eeg_device_key'] = merge_meta[0].get('device_key', 'device_0')
+            stream_infos['n_eeg_segments_in_group'] = merge_meta[0].get('n_segments', 1)
+
+            if exports_dict is not None:
+                for a_format, per_idx_dict in exports_dict.items():
+                    export_path = per_idx_dict.get(0, None)
+                    if export_path is not None:
+                        stream_infos[f'proccessed_{a_format}_filename'] = export_path.name
+
             # Up-convert and set montage
             eeg_raw = up_convert_raw_obj(eeg_raw)
             EEGData.set_montage(datasets_EEG=[eeg_raw])
             eeg_raw.debug_test_annotations_timestamps()
-            
 
-            ## Do post-processing stage
-            # a_raw = eeg_raw
+            # Do post-processing stage
             result = None
             try:
                 meas_date = eeg_raw.info.get('meas_date', 'Unknown')
-                print(f"  Processing dataset {an_xdf_file_idx+1}/{len(eeg_raws)} (meas_date: {meas_date})")
-                result = EEGComputations.run_all(raw=eeg_raw)
-                print(f"  Completed dataset {an_xdf_file_idx+1}/{len(eeg_raws)} (meas_date: {meas_date})")
-                # return an_xdf_file_idx, result
+                print(f"  Processing merged EEG dataset for file {an_xdf_file_idx+1}/{len(lab_recorder_xdf_files)} (meas_date: {meas_date})")
+                # Disable BAD_* annotation masking for spectrograms in this pipeline to reduce NaN gaps
+                result = EEGComputations.run_all(raw=eeg_raw, mask_bad_annotated_times=False)
+                print(f"  Completed merged EEG dataset for file {an_xdf_file_idx+1}/{len(lab_recorder_xdf_files)} (meas_date: {meas_date})")
             except Exception as e:
-                print(f"  ERROR processing dataset {an_xdf_file_idx+1}: {e}")
-                # return an_xdf_file_idx, None
+                print(f"  ERROR processing merged EEG dataset for file {an_xdf_file_idx+1}: {e}")
 
             print(f'  Completed XDF file {an_xdf_file_idx+1}/{len(lab_recorder_xdf_files)}: "{a_xdf_file.name}"')
             return an_xdf_file_idx, eeg_raw, stream_infos, result
-            
+
         except (ValueError, KeyError, AssertionError, TypeError) as e:
             print(f'  ERROR in XDF file {an_xdf_file_idx+1}: {e}\n  Skipping file.')
             return an_xdf_file_idx, None, None, None
-            
+
         except Exception as e:
             print(f'  EXCEPTION in XDF file {an_xdf_file_idx+1}: {e}')
             raise

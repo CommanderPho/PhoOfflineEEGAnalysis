@@ -857,6 +857,144 @@ class LabRecorderXDF:
     stream_name_to_modality_dict = {'Epoc X': DataModalityType.EEG, 'Epoc X Motion':DataModalityType.MOTION, 'Epoc X eQuality':None, 'TextLogger': DataModalityType.PHO_LOG_TO_LSL, 'EventBoard': DataModalityType.PHO_LOG_TO_LSL}
 
     datasets: List[mne.io.Raw] = field(default=None)
+
+    # --------------------------------------------------------------------- #
+    #                     EEG grouping / merging helpers                    #
+    # --------------------------------------------------------------------- #
+    @staticmethod
+    def _get_eeg_device_key(raw: mne.io.BaseRaw) -> str:
+        """Returns a stable device key for grouping EEG raws from the same source.
+
+        Prefers info['device_info']['stream_info']['source_id'] when available,
+        otherwise falls back to a composite of hostname and uid, and finally the
+        channel names + sfreq as a last resort.
+        """
+        info = getattr(raw, "info", {}) or {}
+        device_info = info.get("device_info", {}) or {}
+        stream_info = device_info.get("stream_info", {}) or {}
+
+        source_id = stream_info.get("source_id", None)
+        if source_id is not None:
+            return f"source_id:{source_id}"
+
+        hostname = stream_info.get("hostname", None)
+        uid = stream_info.get("uid", None)
+        if hostname is not None or uid is not None:
+            return f"host:{hostname}|uid:{uid}"
+
+        ch_names = tuple(info.get("ch_names", []) or [])
+        sfreq = info.get("sfreq", None)
+        return f"fallback:{ch_names}|sfreq:{sfreq}"
+
+    @classmethod
+    def merge_eeg_streams_by_device(
+        cls,
+        eeg_raws: List[mne.io.BaseRaw],
+        strict_merge: bool = False,
+        debug_print: bool = False,
+    ) -> Tuple[List[mne.io.BaseRaw], List[Dict[str, Any]]]:
+        """Group EEG raws by device identity and merge segments per device.
+
+        Returns:
+            merged_eeg_raws: List of merged Raw objects, one per device group.
+            merge_meta:      List of dicts with keys:
+                             - 'device_key'
+                             - 'segment_indices' (original indices from eeg_raws)
+                             - 'n_segments'
+        """
+        if not eeg_raws:
+            return [], []
+
+        # Up-convert once for safety/consistency
+        from phoofflineeeganalysis.analysis.MNE_helpers import up_convert_raw_obj
+
+        eeg_raws_uc = [up_convert_raw_obj(r) for r in eeg_raws]
+
+        # 1) Group by device key
+        groups: Dict[str, List[int]] = {}
+        for idx, raw in enumerate(eeg_raws_uc):
+            key = cls._get_eeg_device_key(raw)
+            groups.setdefault(key, []).append(idx)
+
+        merged_eeg_raws: List[mne.io.BaseRaw] = []
+        merge_meta: List[Dict[str, Any]] = []
+
+        # 2) For each device group, sort by start time and merge compatible segments
+        for device_key, indices in groups.items():
+            # Sort indices by recording start time for deterministic ordering
+            def _segment_sort_key(i: int):
+                r = eeg_raws_uc[i]
+                # Prefer dedicated helpers if available, else fall back to meas_date
+                try:
+                    if hasattr(r, "raw_timerange"):
+                        start, _ = r.raw_timerange()
+                        return (start is None, start)
+                except Exception:
+                    pass
+                meas_date = r.info.get("meas_date", None)
+                return (meas_date is None, meas_date)
+
+            sorted_indices = sorted(indices, key=_segment_sort_key)
+            candidate_raws = [eeg_raws_uc[i] for i in sorted_indices]
+
+            # Basic compatibility check: channel names/types and sampling rate
+            base = candidate_raws[0]
+            base_ch_names = tuple(base.info.get("ch_names", []) or [])
+            base_ch_types = tuple(base.get_channel_types() or [])
+            base_sfreq = base.info.get("sfreq", None)
+
+            compat_raws: List[mne.io.BaseRaw] = [base]
+            compat_indices: List[int] = [sorted_indices[0]]
+
+            for raw_idx, raw in zip(sorted_indices[1:], candidate_raws[1:]):
+                ch_names = tuple(raw.info.get("ch_names", []) or [])
+                ch_types = tuple(raw.get_channel_types() or [])
+                sfreq = raw.info.get("sfreq", None)
+
+                is_compatible = (
+                    ch_names == base_ch_names
+                    and ch_types == base_ch_types
+                    and sfreq == base_sfreq
+                )
+
+                if not is_compatible:
+                    msg = (
+                        f"LabRecorderXDF.merge_eeg_streams_by_device: "
+                        f"incompatible EEG segment skipped for device '{device_key}': "
+                        f"ch_names/ctypes/sfreq mismatch."
+                    )
+                    print(f"\tWARN: {msg}")
+                    if strict_merge:
+                        raise ValueError(msg)
+                    else:
+                        continue
+
+                compat_raws.append(raw)
+                compat_indices.append(raw_idx)
+
+            if not compat_raws:
+                continue
+
+            if len(compat_raws) == 1:
+                merged = compat_raws[0]
+            else:
+                if debug_print:
+                    print(
+                        f"\tMerging {len(compat_raws)} EEG segments for device '{device_key}'"
+                    )
+                # Allow discontinuities; mne will handle time within each segment
+                merged = mne.concatenate_raws(compat_raws, preload=True)
+
+            merged_eeg_raws.append(merged)
+            merge_meta.append(
+                {
+                    "device_key": device_key,
+                    "segment_indices": compat_indices,
+                    "n_segments": len(compat_indices),
+                }
+            )
+
+        return merged_eeg_raws, merge_meta
     
     @classmethod
     def init_from_lab_recorder_xdf_file(cls, a_xdf_file: Path, debug_print: bool=False):
@@ -1344,58 +1482,66 @@ class LabRecorderXDF:
                  
         
         """
-        ## When done processing the entire LabRecorder.xdf, save only the EEG data (with all annotations and such added) to a new file
-        eeg_raws = raws_dict[DataModalityType.EEG.value]
-        eeg_raws = up_convert_raw_objects(eeg_raws)
-        assert len(eeg_raws) == 1, f"len(eeg_raws): {len(eeg_raws)}, but only handle the single eeg file case."
-        if len(eeg_raws) == 1:
-            eeg_raw = eeg_raws[0]
+        ## When done processing the entire LabRecorder.xdf, save EEG data (with all
+        ## annotations and such added) to new files. Supports multiple EEG devices
+        ## per XDF by writing one output per merged EEG dataset.
+        eeg_raws = raws_dict.get(DataModalityType.EEG.value, [])
+        if len(eeg_raws) == 0:
+            print(f'WARN: save_post_processed_to_fif found no EEG streams in "{a_xdf_file.as_posix()}". Skipping.')
+            return None, None
 
+        # Merge streams by device (one Raw per physical device)
+        merged_eeg_raws, merge_meta = cls.merge_eeg_streams_by_device(
+            eeg_raws=eeg_raws, strict_merge=False, debug_print=False
+        )
+        if len(merged_eeg_raws) == 0:
+            print(f'WARN: save_post_processed_to_fif could not produce any merged EEG datasets for "{a_xdf_file.as_posix()}". Skipping.')
+            return None, None
 
         labRecorder_PostProcessed_path.mkdir(exist_ok=True)
 
         a_lab_recorder_filename: str = a_xdf_file.stem
-        # a_lab_recorder_filename_parts = a_lab_recorder_filename.split('_')
-        
-        ## drop the last useless part like '_egg'
         a_clean_filename: str = a_lab_recorder_filename.removeprefix('LabRecorder_').removesuffix('_eeg')
         a_lab_recorder_filename_parts = a_clean_filename.split('_')
-        final_output_filename_parts = []
-        datetime_part = a_lab_recorder_filename_parts[-1] ## always true, but will be discarded
-        if len(a_lab_recorder_filename_parts) == 1:
-            ## no hostname
-            pass
-        elif len(a_lab_recorder_filename_parts) > 2:
-            ## has hostname
+
+        datetime_part = a_lab_recorder_filename_parts[-1] if len(a_lab_recorder_filename_parts) > 0 else ""
+        if len(a_lab_recorder_filename_parts) > 2:
             hostname_parts = '_'.join(a_lab_recorder_filename_parts[:-1])
             print(f'hostname_parts: {hostname_parts} will be discarded')
-            # final_output_filename_parts.append(hostname_parts)
 
-        ## replace with the eeg meas date
-        meas_date = eeg_raw.info.get('meas_date')
-        # a_lab_recorder_filename_parts[-2] = meas_date.strftime("%Y-%m-%dT%H-%M-%S")
-        final_output_filename_parts.append(meas_date.strftime("%Y-%m-%dT%H-%M-%S"))
-        
-        a_lab_recorder_filename: str = '_'.join(final_output_filename_parts)
-        # a_lab_recorder_filename: str = '_'.join(a_lab_recorder_filename_parts[:-1]) ## drop only the last part
-        # a_lab_recorder_filename
+        export_filepaths_dict = {}
+        # For backward compatibility, return the first merged EEG Raw (primary)
+        primary_eeg_raw = merged_eeg_raws[0]
 
-        a_lab_recorder_filepath = labRecorder_PostProcessed_path.joinpath(a_lab_recorder_filename)
-        # a_lab_recorder_filepath.with_suffix('.fif')
+        for idx, eeg_raw in enumerate(merged_eeg_raws):
+            meas_date = eeg_raw.info.get('meas_date', None)
+            if meas_date is not None:
+                base_dt_str = meas_date.strftime("%Y-%m-%dT%H-%M-%S")
+            else:
+                base_dt_str = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
 
-        a_lab_recorder_filepath = a_lab_recorder_filepath.with_suffix('.fif')
-        print(f'saving finalized EEG data out to "{a_lab_recorder_filepath.as_posix()}"')
-        eeg_raw.save(a_lab_recorder_filepath, overwrite=True)
-        
-        export_filepaths_dict = {'fif': a_lab_recorder_filepath}
-        if export_mat:
-            mat_export_folder = a_lab_recorder_filepath.parent.joinpath('mat')
-            mat_export_folder.mkdir(exist_ok=True)
-            mat_export_path = mat_export_folder.joinpath(a_lab_recorder_filename).with_suffix('.mat')
-            export_filepaths_dict['mat'] = eeg_raw.save_to_fieldtrip_mat(mat_export_path)
+            # Add device index suffix if there are multiple EEG datasets
+            if len(merged_eeg_raws) > 1:
+                device_suffix = f"eeg{idx}"
+                final_output_filename = f"{base_dt_str}_{device_suffix}"
+            else:
+                final_output_filename = base_dt_str
 
+            a_lab_recorder_filepath = labRecorder_PostProcessed_path.joinpath(final_output_filename).with_suffix('.fif')
+            print(f'saving finalized EEG data out to "{a_lab_recorder_filepath.as_posix()}"')
+            eeg_raw.save(a_lab_recorder_filepath, overwrite=True)
 
-        return eeg_raw, export_filepaths_dict
+            # Record per-format exports keyed by dataset index
+            export_filepaths_dict.setdefault('fif', {})[idx] = a_lab_recorder_filepath
+
+            if export_mat:
+                mat_export_folder = a_lab_recorder_filepath.parent.joinpath('mat')
+                mat_export_folder.mkdir(exist_ok=True)
+                mat_export_path = mat_export_folder.joinpath(final_output_filename).with_suffix('.mat')
+                mat_path = eeg_raw.save_to_fieldtrip_mat(mat_export_path)
+                export_filepaths_dict.setdefault('mat', {})[idx] = mat_path
+
+        return primary_eeg_raw, export_filepaths_dict
     
 
     @classmethod
@@ -1438,31 +1584,49 @@ class LabRecorderXDF:
             try:
                 stream_infos, raws, raws_dict = cls.init_from_lab_recorder_xdf_file(a_xdf_file=a_xdf_file)
                 eeg_raws = raws_dict.get(DataModalityType.EEG.value, [])
-                if len(eeg_raws) != 1:
-                     raise ValueError(f'for file "{a_xdf_file.as_posix()}": len(eeg_raws): {len(eeg_raws)}, but only handle the single eeg file case.')
-                else:
-                    eeg_raw = eeg_raws[0]        
+                if len(eeg_raws) == 0:
+                    print(f'\tWARN: no EEG streams found in "{a_xdf_file.as_posix()}". Skipping file.')
+                    continue
 
-                stream_infos['lab_recorder_xdf_file_idx'] = an_xdf_file_idx
-                stream_infos['xdf_dataset_idx'] = len(_out_xdf_stream_infos_df) ## the actual index of the good datsets
-                stream_infos['xdf_filename'] = a_xdf_file.name ## just the name
+                # Merge by device so we can handle multiple EEG streams per XDF
+                merged_eeg_raws, merge_meta = cls.merge_eeg_streams_by_device(
+                    eeg_raws=eeg_raws, strict_merge=False, debug_print=False
+                )
+                if len(merged_eeg_raws) == 0:
+                    print(f'\tWARN: could not produce any merged EEG datasets for "{a_xdf_file.as_posix()}". Skipping file.')
+                    continue
 
-                if should_write_final_merged_eeg_fif:
-                    eeg_raw, a_lab_recorder_exports_filepaths_dict = cls.save_post_processed_to_fif(
+                # Optionally write FIF/MAT once per merged dataset
+                exports_dict = None
+                if should_write_final_merged_eeg_fif and labRecorder_PostProcessed_path is not None:
+                    _, exports_dict = cls.save_post_processed_to_fif(
                         raws_dict=raws_dict,
                         a_xdf_file=a_xdf_file,
                         labRecorder_PostProcessed_path=labRecorder_PostProcessed_path,
                     )
-                    if a_lab_recorder_exports_filepaths_dict is not None:
-                        for a_format, an_export_path in a_lab_recorder_exports_filepaths_dict.items():
-                            stream_infos[f'proccessed_{a_format}_filename'] = an_export_path.name ## just the name
 
-                eeg_raw = up_convert_raw_obj(eeg_raw)
-                EEGData.set_montage(datasets_EEG=[eeg_raw])
-                eeg_raw.debug_test_annotations_timestamps()
-                _out_eeg_raw.append(eeg_raw)
-                # stream_infos['xdf_dataset_idx'] = a_xdf_file.name ## just the name
-                _out_xdf_stream_infos_df.append(stream_infos)
+                for local_idx, eeg_raw in enumerate(merged_eeg_raws):
+                    this_stream_infos = deepcopy(stream_infos)
+                    this_stream_infos['lab_recorder_xdf_file_idx'] = an_xdf_file_idx
+                    this_stream_infos['xdf_filename'] = a_xdf_file.name
+                    this_stream_infos['eeg_device_group_idx'] = local_idx
+                    this_stream_infos['eeg_device_key'] = merge_meta[local_idx].get('device_key', f'device_{local_idx}')
+                    this_stream_infos['n_eeg_segments_in_group'] = merge_meta[local_idx].get('n_segments', 1)
+
+                    if exports_dict is not None:
+                        for a_format, per_idx_dict in exports_dict.items():
+                            export_path = per_idx_dict.get(local_idx, None)
+                            if export_path is not None:
+                                this_stream_infos[f'proccessed_{a_format}_filename'] = Path(export_path).name
+
+                    this_stream_infos['xdf_dataset_idx'] = len(_out_xdf_stream_infos_df)
+
+                    eeg_raw = up_convert_raw_obj(eeg_raw)
+                    EEGData.set_montage(datasets_EEG=[eeg_raw])
+                    eeg_raw.debug_test_annotations_timestamps()
+
+                    _out_eeg_raw.append(eeg_raw)
+                    _out_xdf_stream_infos_df.append(this_stream_infos)
                 
             except (ValueError, KeyError, AssertionError, TypeError) as e:
                 print(f'\t failed with error: {e}\n\tskipping file.')
