@@ -206,8 +206,7 @@ class EEGComputations:
         return _all_outputs
     
     @classmethod
-    def raw_morlet_cwt(cls, raw: mne.io.Raw, picks=None, wavelet_param=4,
-                       num_freq=60, fmax=50, spacing=12.5, **kwargs):
+    def raw_morlet_cwt(cls, raw: mne.io.Raw, picks=None, wavelet_param=4, num_freq=60, fmax=50, spacing=12.5, **kwargs):
         """Compute continuous Morlet wavelet transform for MNE Raw EEG.
 
         raw: mne.io.Raw
