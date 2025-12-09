@@ -165,3 +165,26 @@ class VideoMetadataParser:
         
         return df
 
+
+if __name__ == "__main__":
+    # Example usage
+    folder_path = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings")
+    
+    print(f"Parsing videos in: {folder_path}")
+    print("-" * 80)
+    
+    df = VideoMetadataParser.parse_video_folder(folder_path)
+    
+    if df.empty:
+        print("No videos found or no videos could be parsed.")
+    else:
+        print(f"\nFound {len(df)} videos:\n")
+        print(df.to_string())
+        
+        print("\n" + "-" * 80)
+        print("\nSummary statistics:")
+        print(f"  Total videos: {len(df)}")
+        print(f"  Total duration: {df['video_duration'].sum():.2f} seconds ({df['video_duration'].sum()/3600:.2f} hours)")
+        print(f"  Average duration: {df['video_duration'].mean():.2f} seconds")
+        print(f"  Date range: {df['video_start_datetime'].min()} to {df['video_end_datetime'].max()}")
+
