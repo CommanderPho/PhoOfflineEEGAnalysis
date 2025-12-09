@@ -57,6 +57,153 @@ from phoofflineeeganalysis.PendingNotebookCode import (
 )
 
 
+def compute_session_summary_metrics(
+    active_only_out_eeg_raws,
+    results,
+    stream_infos_df: Optional[pd.DataFrame],
+    output_folder: Path,
+    freq_min: float = 1.0,
+    freq_max: float = 40.0,
+) -> Path:
+    """
+    Compute simple per-session summary metrics from the spectrogram outputs and save to CSV.
+
+    Metrics are intended to support quick comparison across sessions and include:
+      - Duration, sampling rate, number of channels
+      - Bandpower (absolute and relative) for classical bands (delta/theta/alpha/beta)
+      - Dominant frequency within [freq_min, freq_max]
+
+    Returns:
+        Path to the created CSV file.
+    """
+    output_folder = Path(output_folder)
+    output_folder.mkdir(parents=True, exist_ok=True)
+
+    rows = []
+
+    # Precompute simple lookup from dataset index -> xdf_filename (if available)
+    dataset_to_filename: Dict[int, str] = {}
+    if stream_infos_df is not None:
+        try:
+            tmp_df = stream_infos_df.reset_index()
+            if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
+                for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
+                    # Use the first filename for this dataset index
+                    dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
+        except Exception as e:
+            print(f"  WARN: failed to derive dataset -> filename mapping: {e}")
+
+    def _band_mean(Sxx_vals: np.ndarray, freqs_vals: np.ndarray, low: float, high: float) -> float:
+        band_mask = (freqs_vals >= low) & (freqs_vals < high)
+        if not np.any(band_mask):
+            return float("nan")
+        return float(np.nanmean(Sxx_vals[:, band_mask]))
+
+    for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
+        if a_result is None:
+            continue
+        if "spectogram" not in a_result:
+            continue
+
+        try:
+            spect_dict = a_result["spectogram"]
+            Sxx_avg = spect_dict["Sxx_avg"]  # xarray.DataArray: (channels, freqs)
+            freqs_vals = np.asarray(Sxx_avg.coords["freqs"])
+            Sxx_vals = np.asarray(Sxx_avg)  # (n_channels, n_freqs)
+        except Exception as e:
+            print(f"  WARN: failed to unpack spectrogram for session {idx}: {e}")
+            continue
+
+        # Restrict to the main comparison band for global metrics
+        main_band_mask = (freqs_vals >= freq_min) & (freqs_vals <= freq_max)
+        if not np.any(main_band_mask):
+            print(f"  WARN: no frequencies within [{freq_min}, {freq_max}] Hz for session {idx}")
+            continue
+
+        Sxx_main = Sxx_vals[:, main_band_mask]
+        freqs_main = freqs_vals[main_band_mask]
+
+        # Total power in [freq_min, freq_max]
+        total_power = float(np.nanmean(Sxx_main))
+
+        # Classical bands
+        delta_power = _band_mean(Sxx_vals, freqs_vals, 1.0, 4.0)
+        theta_power = _band_mean(Sxx_vals, freqs_vals, 4.0, 8.0)
+        alpha_power = _band_mean(Sxx_vals, freqs_vals, 8.0, 13.0)
+        beta_power = _band_mean(Sxx_vals, freqs_vals, 13.0, 30.0)
+
+        # Relative powers and simple ratios
+        def _safe_div(n: float, d: float) -> float:
+            return float(n / d) if np.isfinite(n) and np.isfinite(d) and d != 0 else float("nan")
+
+        delta_rel = _safe_div(delta_power, total_power)
+        theta_rel = _safe_div(theta_power, total_power)
+        alpha_rel = _safe_div(alpha_power, total_power)
+        beta_rel = _safe_div(beta_power, total_power)
+
+        alpha_theta_ratio = _safe_div(alpha_power, theta_power)
+        beta_alpha_ratio = _safe_div(beta_power, alpha_power)
+
+        # Dominant frequency within [freq_min, freq_max] (global across channels)
+        try:
+            global_psd = np.nanmean(Sxx_main, axis=0)  # (n_freqs_main,)
+            peak_idx = int(np.nanargmax(global_psd))
+            dominant_freq_hz = float(freqs_main[peak_idx])
+        except Exception:
+            dominant_freq_hz = float("nan")
+
+        # Basic session info
+        meas_date = a_raw.info.get("meas_date")
+        if isinstance(meas_date, datetime):
+            meas_date_str = meas_date.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            meas_date_str = str(meas_date)
+
+        try:
+            times = a_raw.times
+            duration_s = float(times[-1] - times[0]) if times.size > 0 else float("nan")
+        except Exception:
+            duration_s = float("nan")
+
+        sfreq = float(a_raw.info.get("sfreq", float("nan")))
+        n_channels = len(a_raw.info.get("ch_names", []))
+        xdf_filename = dataset_to_filename.get(idx, None)
+
+        rows.append(
+            {
+                "session_idx": idx,
+                "xdf_filename": xdf_filename,
+                "meas_date": meas_date_str,
+                "duration_s": duration_s,
+                "sfreq_hz": sfreq,
+                "n_channels": n_channels,
+                f"total_power_{freq_min:.1f}_to_{freq_max:.1f}_hz": total_power,
+                "delta_power": delta_power,
+                "theta_power": theta_power,
+                "alpha_power": alpha_power,
+                "beta_power": beta_power,
+                "delta_rel": delta_rel,
+                "theta_rel": theta_rel,
+                "alpha_rel": alpha_rel,
+                "beta_rel": beta_rel,
+                "alpha_theta_ratio": alpha_theta_ratio,
+                "beta_alpha_ratio": beta_alpha_ratio,
+                "dominant_freq_hz": dominant_freq_hz,
+            }
+        )
+
+    if not rows:
+        print("No valid spectrogram-based metrics were computed; skipping CSV export.")
+        return output_folder.joinpath("session_summaries_empty.csv")
+
+    metrics_df = pd.DataFrame.from_records(rows)
+    csv_path = output_folder.joinpath("session_summaries.csv")
+    metrics_df.to_csv(csv_path, index=False)
+
+    print(f"\nSaved per-session summary metrics to: {csv_path.as_posix()}")
+    return csv_path
+
+
 def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_folder: Path, 
                                      freq_min: float = 1.0, freq_max: float = 40.0):
     """
@@ -545,15 +692,15 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
 
 if __name__ == "__main__":
 
-    n_most_recent_sessions_to_preprocess: int = None # None means all sessions
+    # n_most_recent_sessions_to_preprocess: int = None # None means all sessions
     # n_most_recent_sessions_to_preprocess: int = 35
-    # n_most_recent_sessions_to_preprocess: int = 15
+    n_most_recent_sessions_to_preprocess: int = 15
 
     should_load_preprocessed: bool = False
     # should_load_preprocessed: bool = True
 
-    # should_write_final_merged_eeg_fif: bool = False
-    should_write_final_merged_eeg_fif: bool = True
+    should_write_final_merged_eeg_fif: bool = False
+    # should_write_final_merged_eeg_fif: bool = True
 
     # included_xdf_file_names = [
     # 	"E:/Dropbox (Personal)/Databases/UnparsedData/LabRecorderStudies/sub-P001/LabRecorder_Apogee_2025-10-21T051157.400Z_eeg.xdf", ## When it started to work
@@ -581,9 +728,9 @@ if __name__ == "__main__":
 
 
     sso, xdf_dataset_indicies, _out_xdf_stream_infos_df, active_only_out_eeg_raws, results = process_XDFs_main(included_xdf_file_names=included_xdf_file_names, 
-                                                                                            n_most_recent_sessions_to_preprocess=n_most_recent_sessions_to_preprocess,
-                                                                                            should_write_final_merged_eeg_fif=should_write_final_merged_eeg_fif,
-                                                                                            should_load_preprocessed=should_load_preprocessed,
+                                                                                                                n_most_recent_sessions_to_preprocess=n_most_recent_sessions_to_preprocess,
+                                                                                                                should_write_final_merged_eeg_fif=should_write_final_merged_eeg_fif,
+                                                                                                                should_load_preprocessed=should_load_preprocessed,
     )
 
     ## Extract comments/notes/annotations/etc from the outputs
@@ -602,6 +749,20 @@ if __name__ == "__main__":
         print(f'Extracted {len(extracted_comments_df)} comments/annotations')
     else:
         print('No comments/annotations found')
+
+    # ------------------------------------------------------------------------- #
+    #                Compute and save per-session summary metrics              #
+    # ------------------------------------------------------------------------- #
+    print('\nComputing per-session summary metrics from spectrograms...')
+    summary_output_folder = outputs_root_folder.joinpath('session_summaries')
+    summary_csv_path = compute_session_summary_metrics(
+        active_only_out_eeg_raws=active_only_out_eeg_raws,
+        results=results,
+        stream_infos_df=_out_xdf_stream_infos_df,
+        output_folder=summary_output_folder,
+        freq_min=1.0,
+        freq_max=40.0,
+    )
 
     # ## Save results to Zarr format
     # # Create a simple day_status_dict (you can customize this based on your needs)
@@ -667,4 +828,5 @@ if __name__ == "__main__":
     # print(f'Zarr output: {zarr_out_path}')
     # print(f'NetCDF output: {netcdf_save_path}')
     print(f'Individual HTML spectrograms: {html_output_folder} ({len(html_files)} files)')
+    print(f'Session summary metrics CSV: {summary_csv_path}')
     # print(f'Combined HTML spectrogram: {combined_html_file}')
