@@ -1,0 +1,22 @@
+# Cursor Rules for PhoOfflineEEGAnalysis
+
+## Function Signature Formatting
+
+User prefers function signatures to be on a single line when possible, rather than split across multiple lines. This applies to all function and method definitions.
+
+**Preferred format:**
+```python
+def parse_video_folder(cls, folder_path: Path, video_extensions: List[str] = ['.mp4', '.avi']) -> pd.DataFrame:
+```
+
+**Not preferred (multi-line):**
+```python
+def parse_video_folder(
+    cls,
+    folder_path: Path,
+    video_extensions: List[str] = ['.mp4', '.avi']
+) -> pd.DataFrame:
+```
+
+Only split function signatures across multiple lines when absolutely necessary due to length constraints (e.g., very long parameter lists that exceed reasonable line length).
+
