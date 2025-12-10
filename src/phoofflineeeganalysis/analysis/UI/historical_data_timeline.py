@@ -23,13 +23,13 @@ Usage:
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Tuple
 import numpy as np
 import pandas as pd
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QScrollArea
-from PyQt5.QtCore import Qt, QRectF, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 import pyqtgraph as pg
-from pyqtgraph import PlotWidget, PlotItem, ViewBox
+from pyqtgraph import PlotWidget, ViewBox, DateAxisItem
 
 
 class TrackWidget(QWidget):
@@ -44,15 +44,29 @@ class TrackWidget(QWidget):
         super().__init__(parent)
         self.name = name
         self.height = height
-        self.plot_widget = PlotWidget(parent=self)
+        
+        # Create PlotWidget with DateAxisItem for proper datetime x-axis
+        self.plot_widget = PlotWidget(parent=self, axisItems={'bottom': DateAxisItem(orientation='bottom')})
         self.plot_widget.setFixedHeight(height)
         self.plot_widget.setLabel('left', name)
         self.plot_widget.hideAxis('left')
         self.plot_widget.setLabel('bottom', 'Time')
+        
+        # Enable mouse interaction for zoom/pan
         self.plot_widget.setMouseEnabled(x=True, y=False)
         self.plot_widget.setMenuEnabled(False)
         
-        # X-axis will show timestamps (can be formatted as datetime by PyQtGraph)
+        # Configure ViewBox for wheel zoom and pan
+        vb = self.plot_widget.getViewBox()
+        vb.setMouseMode(vb.PanMode)
+        # Enable wheel zoom (should be default, but make explicit)
+        vb.enableAutoRange(enable=False)
+        # Set limits to allow full range
+        vb.setLimits(xMin=None, xMax=None, yMin=0, yMax=1)
+        
+        # Cache all intervals for performance
+        self._all_intervals: List[Tuple[datetime, datetime]] = []
+        self._all_intervals_ts: Optional[np.ndarray] = None  # Cached as timestamps
         
         # Store rectangles for efficient updates
         self.rect_items: List[pg.PlotDataItem] = []
@@ -62,7 +76,7 @@ class TrackWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.plot_widget)
         
-    def _get_recording_intervals(self) -> List[tuple]:
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
         """
         Return list of (start_datetime, end_datetime) tuples for recordings.
         
@@ -70,7 +84,20 @@ class TrackWidget(QWidget):
         """
         raise NotImplementedError("Subclasses must implement _get_recording_intervals()")
     
-    def update_display(self, time_range: Optional[tuple] = None):
+    def _cache_intervals(self):
+        """Cache intervals as timestamps for fast filtering."""
+        intervals = self._get_recording_intervals()
+        self._all_intervals = intervals
+        
+        if intervals:
+            # Convert to numpy array of timestamps for fast filtering
+            starts = np.array([s.timestamp() if isinstance(s, datetime) else float(s) for s, _ in intervals])
+            ends = np.array([e.timestamp() if isinstance(e, datetime) else float(e) for _, e in intervals])
+            self._all_intervals_ts = np.column_stack([starts, ends])
+        else:
+            self._all_intervals_ts = None
+    
+    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
         """
         Update the track display for the given time range.
         
@@ -78,59 +105,74 @@ class TrackWidget(QWidget):
             time_range: Optional (start_datetime, end_datetime) tuple to limit display.
                        If None, displays all recordings.
         """
+        # Cache intervals if not already cached
+        if self._all_intervals_ts is None:
+            self._cache_intervals()
+        
+        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
+            self.plot_widget.clear()
+            self.rect_items.clear()
+            return
+        
+        # Filter by time range if provided (using numpy for speed)
+        if time_range is not None:
+            start_dt, end_dt = time_range
+            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
+            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
+            
+            # Fast numpy filtering: keep intervals that overlap with visible range
+            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
+            visible_intervals = self._all_intervals_ts[mask]
+        else:
+            visible_intervals = self._all_intervals_ts
+        
         # Clear existing rectangles
         self.plot_widget.clear()
         self.rect_items.clear()
         
-        # Get recording intervals
-        intervals = self._get_recording_intervals()
-        if not intervals:
+        if len(visible_intervals) == 0:
             return
         
-        # Filter by time range if provided
-        if time_range is not None:
-            start_dt, end_dt = time_range
-            intervals = [(s, e) for s, e in intervals if e >= start_dt and s <= end_dt]
+        # Batch create rectangles efficiently
+        pen = pg.mkPen(color=(100, 150, 200, 255), width=1)
+        brush = pg.mkBrush(color=(100, 150, 200, 150))
         
-        # Convert datetimes to timestamps for plotting
-        for start_dt, end_dt in intervals:
-            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
-            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
-            
-            # Create rectangle
-            width = end_ts - start_ts
-            if width <= 0:
-                continue
-            
-            # Use PlotDataItem with fill for efficient rectangle rendering
-            # Create rectangle as closed polygon
-            x = [start_ts, start_ts, end_ts, end_ts, start_ts]
-            y = [0, 1, 1, 0, 0]
-            
-            pen = pg.mkPen(color=(100, 150, 200, 255), width=1)
-            brush = pg.mkBrush(color=(100, 150, 200, 150))
-            
-            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, brush=brush, fillBrush=brush)
-            self.rect_items.append(rect_item)
+        # Pre-allocate arrays for batch plotting
+        if len(visible_intervals) > 0:
+            # Create all rectangles in one go using efficient PlotDataItem
+            for start_ts, end_ts in visible_intervals:
+                width = end_ts - start_ts
+                if width <= 0:
+                    continue
+                
+                # Create rectangle as closed polygon (more efficient than individual items)
+                x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
+                y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
+                
+                # Use plot() with fillBrush for efficient rendering
+                rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
+                self.rect_items.append(rect_item)
         
         # Set y-axis range
         self.plot_widget.setYRange(0, 1, padding=0.1)
     
-    def get_time_range(self) -> Optional[tuple]:
+    def get_time_range(self) -> Optional[Tuple[datetime, datetime]]:
         """
         Get the overall time range covered by this track's data.
         
         Returns:
             (start_datetime, end_datetime) tuple or None if no data.
         """
-        intervals = self._get_recording_intervals()
-        if not intervals:
+        if self._all_intervals_ts is None:
+            self._cache_intervals()
+        
+        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
             return None
         
-        start_times = [s for s, _ in intervals]
-        end_times = [e for _, e in intervals]
+        start_ts = self._all_intervals_ts[:, 0].min()
+        end_ts = self._all_intervals_ts[:, 1].max()
         
-        return (min(start_times), max(end_times))
+        return (datetime.fromtimestamp(start_ts), datetime.fromtimestamp(end_ts))
 
 
 class VideoMetadataTrack(TrackWidget):
@@ -152,10 +194,13 @@ class VideoMetadataTrack(TrackWidget):
         if 'video_end_datetime' in self.video_df.columns:
             self.video_df['video_end_datetime'] = pd.to_datetime(self.video_df['video_end_datetime'])
         
-        # Initial display update
+        # Cache intervals immediately
+        self._cache_intervals()
+        
+        # Initial display update (show all)
         self.update_display()
     
-    def _get_recording_intervals(self) -> List[tuple]:
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
         """Extract video recording intervals from DataFrame."""
         if self.video_df.empty or 'video_start_datetime' not in self.video_df.columns:
             return []
@@ -165,17 +210,23 @@ class VideoMetadataTrack(TrackWidget):
             start_dt = row.get('video_start_datetime')
             end_dt = row.get('video_end_datetime')
             
-            if pd.isna(start_dt) or pd.isna(end_dt):
+            if pd.isna(start_dt):
                 continue
             
             # If end_dt is not available, try to calculate from duration
-            if pd.isna(end_dt) and 'video_duration' in row:
-                duration = row.get('video_duration', 0)
-                if pd.notna(duration) and duration > 0:
-                    from datetime import timedelta
-                    end_dt = start_dt + timedelta(seconds=float(duration))
+            if pd.isna(end_dt):
+                if 'video_duration' in row:
+                    duration = row.get('video_duration', 0)
+                    if pd.notna(duration) and duration > 0:
+                        from datetime import timedelta
+                        end_dt = start_dt + timedelta(seconds=float(duration))
+                    else:
+                        continue
                 else:
                     continue
+            
+            if pd.isna(end_dt):
+                continue
             
             intervals.append((start_dt, end_dt))
         
@@ -198,6 +249,12 @@ class TimelineWidget(QWidget):
         self.tracks: List[TrackWidget] = []
         self.shared_viewbox: Optional[ViewBox] = None
         
+        # Debounce timer for updates to improve performance
+        self._update_timer = QTimer(self)
+        self._update_timer.setSingleShot(True)
+        self._update_timer.timeout.connect(self._perform_update)
+        self._pending_time_range: Optional[Tuple[datetime, datetime]] = None
+        
         # Create main layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -218,7 +275,7 @@ class TimelineWidget(QWidget):
         layout.addWidget(self.scroll_area)
         
         # Track overall time range
-        self.overall_time_range: Optional[tuple] = None
+        self.overall_time_range: Optional[Tuple[datetime, datetime]] = None
         
     def add_track(self, track: TrackWidget):
         """Add a track to the timeline."""
@@ -230,10 +287,15 @@ class TimelineWidget(QWidget):
             # Use first track's viewbox as the master
             self.shared_viewbox = self.tracks[0].plot_widget.getViewBox()
             self.shared_viewbox.sigXRangeChanged.connect(self._on_x_range_changed)
+            
+            # Enable wheel zoom
+            self.shared_viewbox.setMouseMode(self.shared_viewbox.PanMode)
         
         # Link subsequent tracks to the shared viewbox
         if self.shared_viewbox is not None and len(self.tracks) > 1:
             track.plot_widget.setXLink(self.tracks[0].plot_widget)
+            # Enable wheel zoom on linked tracks too
+            track.plot_widget.getViewBox().setMouseMode(track.plot_widget.getViewBox().PanMode)
         
         # Update overall time range
         track_range = track.get_time_range()
@@ -278,7 +340,7 @@ class TimelineWidget(QWidget):
                     self.overall_time_range = (start_min, end_max)
     
     def _on_x_range_changed(self, viewbox):
-        """Handle x-axis range changes (zoom/pan)."""
+        """Handle x-axis range changes (zoom/pan) - debounced for performance."""
         if self.shared_viewbox is None:
             return
         
@@ -289,12 +351,25 @@ class TimelineWidget(QWidget):
         start_dt = datetime.fromtimestamp(start_ts)
         end_dt = datetime.fromtimestamp(end_ts)
         
-        # Update all tracks
+        # Store pending update and debounce
+        self._pending_time_range = (start_dt, end_dt)
+        self._update_timer.stop()
+        self._update_timer.start(50)  # 50ms debounce
+    
+    def _perform_update(self):
+        """Perform the actual update after debounce."""
+        if self._pending_time_range is None:
+            return
+        
+        time_range = self._pending_time_range
+        self._pending_time_range = None
+        
+        # Update all tracks (only visible ones will be rendered)
         for track in self.tracks:
-            track.update_display(time_range=(start_dt, end_dt))
+            track.update_display(time_range=time_range)
         
         # Emit signal
-        self.time_range_changed.emit(start_dt, end_dt)
+        self.time_range_changed.emit(time_range[0], time_range[1])
     
     def set_time_range(self, start_dt: datetime, end_dt: datetime):
         """Programmatically set the visible time range."""
@@ -339,9 +414,14 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     
     # Load video metadata
-    folder_path = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings")
-    video_df = VideoMetadataParser.parse_video_folder(folder_path)
+    # folder_path = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings")
+    # video_df = VideoMetadataParser.parse_video_folder(folder_path)
+
+    csv_save_path = Path('output').joinpath('2025-12-09_parsed_videos.csv').resolve()
+    assert csv_save_path.exists()
+    video_df: pd.DataFrame = pd.read_csv(csv_save_path)
     
+
     # Create timeline
     timeline = create_timeline_widget(video_df=video_df)
     timeline.setWindowTitle("Historical Data Timeline")
@@ -349,4 +429,3 @@ if __name__ == "__main__":
     timeline.show()
     
     sys.exit(app.exec_())
-

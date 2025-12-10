@@ -183,7 +183,12 @@ if __name__ == "__main__":
         csv_save_path = Path('output').joinpath('2025-12-09_parsed_videos.csv').resolve()
         print(f'csv_save_path: "{csv_save_path.as_posix()}"')
         df.to_csv(csv_save_path)
-        
+
+        ## load with: 
+        # csv_save_path = Path('output').joinpath('2025-12-09_parsed_videos.csv').resolve()
+        # assert csv_save_path.exists()
+        # video_df: pd.DataFrame = pd.read_csv(csv_save_path)
+
         print("\n" + "-" * 80)
         print("\nSummary statistics:")
         print(f"  Total videos: {len(df)}")
