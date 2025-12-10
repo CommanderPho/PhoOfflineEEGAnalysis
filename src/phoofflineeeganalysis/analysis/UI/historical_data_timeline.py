@@ -10,33 +10,36 @@ Available Track Classes:
     - MotionRecordingTrack: For motion recordings (recording_datetime, duration_sec)
     - PhoLogTrack: For PHO_LOG_TO_LSL annotations (onset, duration)
     - WhisperTrack: For Whisper transcript intervals (onset, duration)
+    - XDFStreamTrack: Generic track for XDF stream data
 
-Usage:
+Usage Examples:
+    # Example 1: Create timeline from XDF stream info DataFrame
+    from phoofflineeeganalysis.analysis.UI.historical_data_timeline import create_timeline_from_xdf_streams
+    
+    timeline = create_timeline_from_xdf_streams(all_xdf_stream_infos_df)
+    timeline.show()
+    
+    # Example 2: Manual track creation
     from phoofflineeeganalysis.analysis.UI.historical_data_timeline import (
-        TimelineWidget, VideoMetadataTrack, EEGRecordingTrack, MotionRecordingTrack
+        TimelineWidget, VideoMetadataTrack, EEGRecordingTrack
     )
     from phoofflineeeganalysis.analysis.video_metadata import VideoMetadataParser
     
-    # Load video metadata
-    video_df = VideoMetadataParser.parse_video_folder(Path("path/to/videos"))
-    
-    # Create timeline widget
     timeline = TimelineWidget()
     
     # Add video track
+    video_df = VideoMetadataParser.parse_video_folder(Path("path/to/videos"))
     video_track = VideoMetadataTrack(video_df)
     timeline.add_track(video_track)
     
-    # Add EEG track (from SessionModality.df)
-    eeg_track = EEGRecordingTrack(eeg_df)
-    timeline.add_track(eeg_track)
+    # Add tracks from XDF streams
+    timeline.add_tracks_from_xdf_streams(all_xdf_stream_infos_df)
     
-    # Show widget
     timeline.show()
 """
 
 from datetime import datetime
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union
 import numpy as np
 import pandas as pd
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel
@@ -44,6 +47,44 @@ from PyQt5.QtCore import Qt, pyqtSignal, QTimer
 from PyQt5.QtGui import QFont
 import pyqtgraph as pg
 from pyqtgraph import PlotWidget, ViewBox, DateAxisItem
+
+
+def _parse_duration_to_seconds(duration: Union[pd.Timedelta, float, int, str, None]) -> Optional[float]:
+    """
+    Convert duration to seconds, handling various input types.
+    
+    Args:
+        duration: Duration as Timedelta, float, int, string representation, or None
+        
+    Returns:
+        Duration in seconds as float, or None if invalid/missing
+    """
+    if duration is None or pd.isna(duration):
+        return None
+    
+    # Handle Timedelta objects
+    if isinstance(duration, pd.Timedelta):
+        return duration.total_seconds()
+    
+    # Handle string representations of Timedeltas (e.g., '0 days 00:00:19.001019200')
+    if isinstance(duration, str):
+        try:
+            # Try parsing as Timedelta string
+            td = pd.to_timedelta(duration)
+            return td.total_seconds()
+        except (ValueError, TypeError):
+            # If that fails, try parsing as float
+            try:
+                return float(duration)
+            except (ValueError, TypeError):
+                return None
+    
+    # Handle numeric types
+    try:
+        duration_float = float(duration)
+        return duration_float if duration_float > 0 else None
+    except (ValueError, TypeError):
+        return None
 
 
 class TrackWidget(QWidget):
@@ -371,26 +412,18 @@ class XDFStreamTrack(TrackWidget):
             # Second try: calculate from duration_sec_check
             if end_dt is None or pd.isna(end_dt):
                 duration = row.get('duration_sec_check', None)
-                if pd.notna(duration):
-                    if isinstance(duration, pd.Timedelta):
-                        duration_seconds = duration.total_seconds()
-                    else:
-                        duration_seconds = float(duration)
-                    if duration_seconds > 0:
-                        from datetime import timedelta
-                        end_dt = start_dt + timedelta(seconds=duration_seconds)
+                duration_seconds = _parse_duration_to_seconds(duration)
+                if duration_seconds is not None and duration_seconds > 0:
+                    from datetime import timedelta
+                    end_dt = start_dt + timedelta(seconds=duration_seconds)
             
             # Third try: calculate from duration_sec
             if end_dt is None or pd.isna(end_dt):
                 duration = row.get('duration_sec', None)
-                if pd.notna(duration):
-                    if isinstance(duration, pd.Timedelta):
-                        duration_seconds = duration.total_seconds()
-                    else:
-                        duration_seconds = float(duration)
-                    if duration_seconds > 0:
-                        from datetime import timedelta
-                        end_dt = start_dt + timedelta(seconds=duration_seconds)
+                duration_seconds = _parse_duration_to_seconds(duration)
+                if duration_seconds is not None and duration_seconds > 0:
+                    from datetime import timedelta
+                    end_dt = start_dt + timedelta(seconds=duration_seconds)
             
             # If still no end time, skip or use minimal duration
             if end_dt is None or pd.isna(end_dt):
@@ -495,16 +528,9 @@ class EEGRecordingTrack(TrackWidget):
             if pd.isna(duration):
                 duration = row.get('duration_sec', None)
             
-            if pd.isna(duration):
-                continue
-            
-            # Convert duration to seconds if it's a Timedelta
-            if isinstance(duration, pd.Timedelta):
-                duration_seconds = duration.total_seconds()
-            else:
-                duration_seconds = float(duration)
-            
-            if duration_seconds <= 0:
+            # Parse duration to seconds
+            duration_seconds = _parse_duration_to_seconds(duration)
+            if duration_seconds is None or duration_seconds <= 0:
                 continue
             
             # Calculate end datetime
@@ -602,16 +628,10 @@ class MotionRecordingTrack(TrackWidget):
             
             # Get duration
             duration = row.get('duration_sec', None)
-            if pd.isna(duration):
-                continue
             
-            # Convert duration to seconds if it's a Timedelta
-            if isinstance(duration, pd.Timedelta):
-                duration_seconds = duration.total_seconds()
-            else:
-                duration_seconds = float(duration)
-            
-            if duration_seconds <= 0:
+            # Parse duration to seconds
+            duration_seconds = _parse_duration_to_seconds(duration)
+            if duration_seconds is None or duration_seconds <= 0:
                 continue
             
             # Calculate end datetime
@@ -709,18 +729,12 @@ class PhoLogTrack(TrackWidget):
             
             # Get duration
             duration = row.get('duration', None)
-            if pd.isna(duration):
+            
+            # Parse duration to seconds
+            duration_seconds = _parse_duration_to_seconds(duration)
+            if duration_seconds is None or duration_seconds <= 0:
                 # If no duration, use a minimal duration (e.g., 0.1 seconds for point events)
-                duration = 0.1
-            
-            # Convert duration to seconds if it's a Timedelta
-            if isinstance(duration, pd.Timedelta):
-                duration_seconds = duration.total_seconds()
-            else:
-                duration_seconds = float(duration)
-            
-            if duration_seconds <= 0:
-                duration_seconds = 0.1  # Minimum duration for visibility
+                duration_seconds = 0.1
             
             # Calculate end datetime
             from datetime import timedelta
@@ -817,18 +831,12 @@ class WhisperTrack(TrackWidget):
             
             # Get duration
             duration = row.get('duration', None)
-            if pd.isna(duration):
+            
+            # Parse duration to seconds
+            duration_seconds = _parse_duration_to_seconds(duration)
+            if duration_seconds is None or duration_seconds <= 0:
                 # If no duration, use a minimal duration (e.g., 0.1 seconds for point events)
-                duration = 0.1
-            
-            # Convert duration to seconds if it's a Timedelta
-            if isinstance(duration, pd.Timedelta):
-                duration_seconds = duration.total_seconds()
-            else:
-                duration_seconds = float(duration)
-            
-            if duration_seconds <= 0:
-                duration_seconds = 0.1  # Minimum duration for visibility
+                duration_seconds = 0.1
             
             # Calculate end datetime
             from datetime import timedelta
@@ -1180,15 +1188,28 @@ if __name__ == "__main__":
     # folder_path = Path(r"M:\ScreenRecordings\EyeTrackerVR_Recordings")
     # video_df = VideoMetadataParser.parse_video_folder(folder_path)
 
-    csv_save_path = Path('output').joinpath('2025-12-09_parsed_videos.csv').resolve()
+    
+    # Create timeline
+    # timeline = create_timeline_widget(video_df=video_df)
+
+    output_folder = Path('output').resolve()
+    assert output_folder.exists()
+
+    timeline: TimelineWidget = TimelineWidget()
+
+    csv_save_path = output_folder.joinpath('2025-12-09_parsed_videos.csv').resolve()
     assert csv_save_path.exists()
     video_df: pd.DataFrame = pd.read_csv(csv_save_path)
-    
 
-    # Create timeline
-    timeline = create_timeline_widget(video_df=video_df)
+    csv_save_path = output_folder.joinpath('2025-12-10_all_xdf_stream_infos.csv').resolve()
+    assert csv_save_path.exists()
+    all_xdf_stream_infos_df: pd.DataFrame = pd.read_csv(csv_save_path)
+
+    # Add tracks from different modalities
+    timeline.add_track(VideoMetadataTrack(video_df))
+    timeline.add_tracks_from_xdf_streams(all_xdf_stream_infos_df)
     timeline.setWindowTitle("Historical Data Timeline")
-    timeline.resize(1200, 600)
+    timeline.resize(1900, 800)
     timeline.show()
     
     sys.exit(app.exec_())
