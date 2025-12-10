@@ -39,12 +39,13 @@ Usage Examples:
 """
 
 from datetime import datetime
-from typing import Optional, List, Tuple, Union
+from typing import Optional, List, Tuple, Union, Dict, Any
+from pathlib import Path
 import numpy as np
 import pandas as pd
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer
-from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel, QGraphicsRectItem, QMessageBox
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QPointF
+from PyQt5.QtGui import QFont, QPen, QBrush
 import pyqtgraph as pg
 from pyqtgraph import PlotWidget, ViewBox, DateAxisItem
 
@@ -123,14 +124,24 @@ class TrackWidget(QWidget):
         self._all_intervals: List[Tuple[datetime, datetime]] = []
         self._all_intervals_ts: Optional[np.ndarray] = None  # Cached as timestamps
         
+        # Store metadata for each interval (index matches _all_intervals_ts)
+        self._interval_metadata: List[Dict[str, Any]] = []
+        
         # Store rectangles for efficient updates
-        self.rect_items: List[pg.PlotDataItem] = []
+        self.rect_items: List[QGraphicsRectItem] = []
+        
+        # Default colors (can be overridden by subclasses)
+        self._pen_color = (100, 150, 200, 255)
+        self._brush_color = (100, 150, 200, 150)
+        
+        # Cache pen and brush objects for performance
+        self._pen: Optional[QPen] = None
+        self._brush: Optional[QBrush] = None
         
         # Create label for track name (left edge)
         self.name_label = QLabel(name, self)
         self.name_label.setAlignment(Qt.AlignCenter | Qt.AlignVCenter)
         self.name_label.setFixedWidth(80)  # Fixed width for label
-        # Rotate text vertically
         font = QFont()
         font.setPointSize(9)
         self.name_label.setFont(font)
@@ -149,6 +160,11 @@ class TrackWidget(QWidget):
         layout.addWidget(self.name_label)
         layout.addWidget(self.plot_widget, stretch=1)
         
+        # Connect mouse events for tooltips and click handlers
+        vb = self.plot_widget.getViewBox()
+        vb.sigSceneMouseMoved.connect(self._on_mouse_moved)
+        vb.sigSceneMouseClicked.connect(self._on_mouse_clicked)
+        
     def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
         """
         Return list of (start_datetime, end_datetime) tuples for recordings.
@@ -162,13 +178,38 @@ class TrackWidget(QWidget):
         intervals = self._get_recording_intervals()
         self._all_intervals = intervals
         
+        # Cache metadata alongside intervals
+        self._cache_metadata()
+        
         if intervals:
-            # Convert to numpy array of timestamps for fast filtering
-            starts = np.array([s.timestamp() if isinstance(s, datetime) else float(s) for s, _ in intervals])
-            ends = np.array([e.timestamp() if isinstance(e, datetime) else float(e) for _, e in intervals])
+            # Convert to numpy array of timestamps for fast filtering (vectorized)
+            # Pre-allocate arrays for better performance
+            n = len(intervals)
+            starts = np.empty(n, dtype=np.float64)
+            ends = np.empty(n, dtype=np.float64)
+            
+            for i, (s, e) in enumerate(intervals):
+                starts[i] = s.timestamp() if isinstance(s, datetime) else float(s)
+                ends[i] = e.timestamp() if isinstance(e, datetime) else float(e)
+            
             self._all_intervals_ts = np.column_stack([starts, ends])
         else:
             self._all_intervals_ts = None
+    
+    def _cache_metadata(self):
+        """
+        Cache metadata for each interval.
+        
+        Subclasses should override this to extract metadata from their DataFrames.
+        Default implementation creates empty metadata dicts.
+        """
+        self._interval_metadata = [{} for _ in self._all_intervals]
+    
+    def _get_metadata_for_interval(self, interval_index: int) -> Dict[str, Any]:
+        """Get metadata for a specific interval by index."""
+        if 0 <= interval_index < len(self._interval_metadata):
+            return self._interval_metadata[interval_index]
+        return {}
     
     def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
         """
@@ -196,8 +237,10 @@ class TrackWidget(QWidget):
             # Fast numpy filtering: keep intervals that overlap with visible range
             mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
             visible_intervals = self._all_intervals_ts[mask]
+            visible_indices = np.where(mask)[0]
         else:
             visible_intervals = self._all_intervals_ts
+            visible_indices = np.arange(len(self._all_intervals_ts))
         
         # Clear existing rectangles
         self.plot_widget.clear()
@@ -206,24 +249,43 @@ class TrackWidget(QWidget):
         if len(visible_intervals) == 0:
             return
         
-        # Batch create rectangles efficiently
-        pen = pg.mkPen(color=(100, 150, 200, 255), width=1)
-        brush = pg.mkBrush(color=(100, 150, 200, 150))
+        # Filter out invalid intervals (width <= 0) before rendering
+        valid_mask = visible_intervals[:, 1] > visible_intervals[:, 0]
+        valid_intervals = visible_intervals[valid_mask]
+        valid_indices = visible_indices[valid_mask]  # Map to original indices
         
-        # Pre-allocate arrays for batch plotting
-        if len(visible_intervals) > 0:
-            # Create all rectangles in one go using efficient PlotDataItem
-            for start_ts, end_ts in visible_intervals:
+        if len(valid_intervals) > 0:
+            # Create or update cached pen and brush objects
+            if self._pen is None or self._pen.color().getRgb()[:3] != self._pen_color[:3]:
+                self._pen = QPen(Qt.NoPen)  # No border for cleaner look
+                self._pen.setColor(pg.mkColor(self._pen_color))
+                self._pen.setWidth(1)
+            
+            if self._brush is None or self._brush.color().getRgb()[:3] != self._brush_color[:3]:
+                self._brush = QBrush(pg.mkColor(self._brush_color))
+            
+            # Create rectangles using QGraphicsRectItem for better performance
+            n_rects = len(valid_intervals)
+            for i in range(n_rects):
+                start_ts = valid_intervals[i, 0]
+                end_ts = valid_intervals[i, 1]
                 width = end_ts - start_ts
-                if width <= 0:
-                    continue
                 
-                # Create rectangle as closed polygon (more efficient than individual items)
-                x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
-                y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
+                # Create rectangle item
+                rect_item = QGraphicsRectItem(start_ts, 0.0, width, 1.0)
+                rect_item.setPen(self._pen)
+                rect_item.setBrush(self._brush)
                 
-                # Use plot() with fillBrush for efficient rendering
-                rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
+                # Set tooltip with metadata
+                orig_idx = valid_indices[i]
+                metadata = self._get_metadata_for_interval(orig_idx)
+                tooltip_text = self._format_tooltip(metadata, start_ts, end_ts)
+                rect_item.setToolTip(tooltip_text)
+                
+                # Store interval index for click detection
+                rect_item.setData(0, orig_idx)
+                
+                self.plot_widget.addItem(rect_item)
                 self.rect_items.append(rect_item)
         
         # Set y-axis range
@@ -246,6 +308,125 @@ class TrackWidget(QWidget):
         end_ts = self._all_intervals_ts[:, 1].max()
         
         return (datetime.fromtimestamp(start_ts), datetime.fromtimestamp(end_ts))
+    
+    def _format_tooltip(self, metadata: Dict[str, Any], start_ts: float, end_ts: float) -> str:
+        """Format tooltip text for an interval."""
+        lines = []
+        
+        # Add filename if available
+        filename = metadata.get('filename', metadata.get('file_path', ''))
+        if filename:
+            if isinstance(filename, (str, Path)):
+                filename = Path(filename).name if filename else ''
+            if filename:
+                lines.append(f"File: {filename}")
+        
+        # Add start/end datetime
+        start_dt = datetime.fromtimestamp(start_ts)
+        end_dt = datetime.fromtimestamp(end_ts)
+        duration = end_dt - start_dt
+        lines.append(f"Start: {start_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"End: {end_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"Duration: {duration}")
+        
+        # Add additional metadata
+        if 'duration' in metadata and metadata['duration']:
+            lines.append(f"Duration: {metadata['duration']}")
+        if 'fps' in metadata and metadata['fps']:
+            lines.append(f"FPS: {metadata['fps']}")
+        if 'resolution' in metadata:
+            lines.append(f"Resolution: {metadata['resolution']}")
+        if 'file_size' in metadata and metadata['file_size']:
+            size_mb = metadata['file_size'] / (1024 * 1024) if isinstance(metadata['file_size'], (int, float)) else metadata['file_size']
+            lines.append(f"Size: {size_mb:.2f} MB" if isinstance(size_mb, (int, float)) else f"Size: {size_mb}")
+        
+        return '\n'.join(lines)
+    
+    def _on_mouse_moved(self, evt):
+        """Handle mouse move events for tooltip display."""
+        if evt is None:
+            return
+        
+        vb = self.plot_widget.getViewBox()
+        if vb is None:
+            return
+        
+        # Convert scene coordinates to view coordinates
+        scene_pos = evt.scenePos()
+        view_pos = vb.mapSceneToView(scene_pos)
+        
+        # Check if mouse is over any rectangle
+        mouse_x = view_pos.x()
+        mouse_y = view_pos.y()
+        
+        # Only show tooltip if mouse is in y-range [0, 1]
+        if not (0 <= mouse_y <= 1):
+            return
+        
+        # Find which rectangle contains the mouse x-coordinate
+        for rect_item in self.rect_items:
+            rect = rect_item.rect()
+            if rect.left() <= mouse_x <= rect.right():
+                # Tooltip is already set on the item, Qt will handle it
+                return
+    
+    def _on_mouse_clicked(self, evt):
+        """Handle mouse click events to show detailed metadata."""
+        if evt is None or evt.button() != Qt.LeftButton:
+            return
+        
+        vb = self.plot_widget.getViewBox()
+        if vb is None:
+            return
+        
+        # Convert scene coordinates to view coordinates
+        scene_pos = evt.scenePos()
+        view_pos = vb.mapSceneToView(scene_pos)
+        
+        mouse_x = view_pos.x()
+        mouse_y = view_pos.y()
+        
+        # Only handle clicks in y-range [0, 1]
+        if not (0 <= mouse_y <= 1):
+            return
+        
+        # Find which rectangle was clicked
+        for rect_item in self.rect_items:
+            rect = rect_item.rect()
+            if rect.left() <= mouse_x <= rect.right():
+                # Get interval index from item data
+                interval_idx = rect_item.data(0)
+                if interval_idx >= 0 and interval_idx < len(self._interval_metadata):
+                    metadata = self._interval_metadata[interval_idx]
+                    self._show_metadata_dialog(metadata, rect.left(), rect.right())
+                return
+    
+    def _show_metadata_dialog(self, metadata: Dict[str, Any], start_ts: float, end_ts: float):
+        """Show detailed metadata in a dialog."""
+        start_dt = datetime.fromtimestamp(start_ts)
+        end_dt = datetime.fromtimestamp(end_ts)
+        duration = end_dt - start_dt
+        
+        lines = [f"<b>{self.name} Recording Details</b>", ""]
+        
+        # Add time information
+        lines.append(f"<b>Time Range:</b>")
+        lines.append(f"  Start: {start_dt.strftime('%Y-%m-%d %H:%M:%S.%f')}")
+        lines.append(f"  End: {end_dt.strftime('%Y-%m-%d %H:%M:%S.%f')}")
+        lines.append(f"  Duration: {duration}")
+        lines.append("")
+        
+        # Add metadata fields
+        if metadata:
+            lines.append("<b>Metadata:</b>")
+            for key, value in sorted(metadata.items()):
+                if value is not None and value != '':
+                    # Format key nicely
+                    display_key = key.replace('_', ' ').title()
+                    lines.append(f"  {display_key}: {value}")
+        
+        message = '\n'.join(lines)
+        QMessageBox.information(self, f"{self.name} Recording Details", message)
 
 
 class VideoMetadataTrack(TrackWidget):
@@ -259,6 +440,10 @@ class VideoMetadataTrack(TrackWidget):
     
     def __init__(self, video_df: pd.DataFrame, name: str = "Videos", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
+        # Set video-specific colors (blue theme)
+        self._pen_color = (100, 150, 200, 255)
+        self._brush_color = (100, 150, 200, 150)
+        
         self.video_df = video_df.copy()
         
         # Ensure datetime columns are datetime type
@@ -304,55 +489,6 @@ class VideoMetadataTrack(TrackWidget):
             intervals.append((start_dt, end_dt))
         
         return intervals
-    
-    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
-        """Override to use video-specific colors."""
-        # Cache intervals if not already cached
-        if self._all_intervals_ts is None:
-            self._cache_intervals()
-        
-        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
-            self.plot_widget.clear()
-            self.rect_items.clear()
-            return
-        
-        # Filter by time range if provided (using numpy for speed)
-        if time_range is not None:
-            start_dt, end_dt = time_range
-            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
-            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
-            
-            # Fast numpy filtering: keep intervals that overlap with visible range
-            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
-            visible_intervals = self._all_intervals_ts[mask]
-        else:
-            visible_intervals = self._all_intervals_ts
-        
-        # Clear existing rectangles
-        self.plot_widget.clear()
-        self.rect_items.clear()
-        
-        if len(visible_intervals) == 0:
-            return
-        
-        # Video-specific colors (blue theme)
-        pen = pg.mkPen(color=(100, 150, 200, 255), width=1)
-        brush = pg.mkBrush(color=(100, 150, 200, 150))
-        
-        # Create rectangles
-        for start_ts, end_ts in visible_intervals:
-            width = end_ts - start_ts
-            if width <= 0:
-                continue
-            
-            x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
-            y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
-            
-            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
-            self.rect_items.append(rect_item)
-        
-        # Set y-axis range
-        self.plot_widget.setYRange(0, 1, padding=0.1)
 
 
 class XDFStreamTrack(TrackWidget):
@@ -369,6 +505,10 @@ class XDFStreamTrack(TrackWidget):
     
     def __init__(self, stream_df: pd.DataFrame, name: str = "Stream", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
+        # Set stream-specific colors (gray theme)
+        self._pen_color = (150, 150, 150, 255)
+        self._brush_color = (150, 150, 150, 150)
+        
         self.stream_df = stream_df.copy()
         
         # Ensure datetime columns are datetime type
@@ -437,55 +577,6 @@ class XDFStreamTrack(TrackWidget):
             intervals.append((start_dt, end_dt))
         
         return intervals
-    
-    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
-        """Override to use stream-specific colors."""
-        # Cache intervals if not already cached
-        if self._all_intervals_ts is None:
-            self._cache_intervals()
-        
-        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
-            self.plot_widget.clear()
-            self.rect_items.clear()
-            return
-        
-        # Filter by time range if provided (using numpy for speed)
-        if time_range is not None:
-            start_dt, end_dt = time_range
-            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
-            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
-            
-            # Fast numpy filtering: keep intervals that overlap with visible range
-            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
-            visible_intervals = self._all_intervals_ts[mask]
-        else:
-            visible_intervals = self._all_intervals_ts
-        
-        # Clear existing rectangles
-        self.plot_widget.clear()
-        self.rect_items.clear()
-        
-        if len(visible_intervals) == 0:
-            return
-        
-        # Default colors (gray theme)
-        pen = pg.mkPen(color=(150, 150, 150, 255), width=1)
-        brush = pg.mkBrush(color=(150, 150, 150, 150))
-        
-        # Create rectangles
-        for start_ts, end_ts in visible_intervals:
-            width = end_ts - start_ts
-            if width <= 0:
-                continue
-            
-            x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
-            y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
-            
-            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
-            self.rect_items.append(rect_item)
-        
-        # Set y-axis range
-        self.plot_widget.setYRange(0, 1, padding=0.1)
 
 
 class EEGRecordingTrack(TrackWidget):
@@ -499,6 +590,10 @@ class EEGRecordingTrack(TrackWidget):
     
     def __init__(self, eeg_df: pd.DataFrame, name: str = "EEG", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
+        # Set EEG-specific colors (green/blue theme)
+        self._pen_color = (50, 200, 100, 255)
+        self._brush_color = (50, 200, 100, 150)
+        
         self.eeg_df = eeg_df.copy()
         
         # Ensure datetime columns are datetime type
@@ -540,55 +635,6 @@ class EEGRecordingTrack(TrackWidget):
             intervals.append((start_dt, end_dt))
         
         return intervals
-    
-    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
-        """Override to use EEG-specific colors."""
-        # Cache intervals if not already cached
-        if self._all_intervals_ts is None:
-            self._cache_intervals()
-        
-        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
-            self.plot_widget.clear()
-            self.rect_items.clear()
-            return
-        
-        # Filter by time range if provided (using numpy for speed)
-        if time_range is not None:
-            start_dt, end_dt = time_range
-            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
-            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
-            
-            # Fast numpy filtering: keep intervals that overlap with visible range
-            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
-            visible_intervals = self._all_intervals_ts[mask]
-        else:
-            visible_intervals = self._all_intervals_ts
-        
-        # Clear existing rectangles
-        self.plot_widget.clear()
-        self.rect_items.clear()
-        
-        if len(visible_intervals) == 0:
-            return
-        
-        # EEG-specific colors (green/blue theme)
-        pen = pg.mkPen(color=(50, 200, 100, 255), width=1)
-        brush = pg.mkBrush(color=(50, 200, 100, 150))
-        
-        # Create rectangles
-        for start_ts, end_ts in visible_intervals:
-            width = end_ts - start_ts
-            if width <= 0:
-                continue
-            
-            x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
-            y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
-            
-            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
-            self.rect_items.append(rect_item)
-        
-        # Set y-axis range
-        self.plot_widget.setYRange(0, 1, padding=0.1)
 
 
 class MotionRecordingTrack(TrackWidget):
@@ -602,6 +648,10 @@ class MotionRecordingTrack(TrackWidget):
     
     def __init__(self, motion_df: pd.DataFrame, name: str = "Motion", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
+        # Set motion-specific colors (orange/red theme)
+        self._pen_color = (255, 150, 50, 255)
+        self._brush_color = (255, 150, 50, 150)
+        
         self.motion_df = motion_df.copy()
         
         # Ensure datetime columns are datetime type
@@ -641,55 +691,6 @@ class MotionRecordingTrack(TrackWidget):
             intervals.append((start_dt, end_dt))
         
         return intervals
-    
-    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
-        """Override to use motion-specific colors."""
-        # Cache intervals if not already cached
-        if self._all_intervals_ts is None:
-            self._cache_intervals()
-        
-        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
-            self.plot_widget.clear()
-            self.rect_items.clear()
-            return
-        
-        # Filter by time range if provided (using numpy for speed)
-        if time_range is not None:
-            start_dt, end_dt = time_range
-            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
-            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
-            
-            # Fast numpy filtering: keep intervals that overlap with visible range
-            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
-            visible_intervals = self._all_intervals_ts[mask]
-        else:
-            visible_intervals = self._all_intervals_ts
-        
-        # Clear existing rectangles
-        self.plot_widget.clear()
-        self.rect_items.clear()
-        
-        if len(visible_intervals) == 0:
-            return
-        
-        # Motion-specific colors (orange/red theme)
-        pen = pg.mkPen(color=(255, 150, 50, 255), width=1)
-        brush = pg.mkBrush(color=(255, 150, 50, 150))
-        
-        # Create rectangles
-        for start_ts, end_ts in visible_intervals:
-            width = end_ts - start_ts
-            if width <= 0:
-                continue
-            
-            x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
-            y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
-            
-            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
-            self.rect_items.append(rect_item)
-        
-        # Set y-axis range
-        self.plot_widget.setYRange(0, 1, padding=0.1)
 
 
 class PhoLogTrack(TrackWidget):
@@ -703,6 +704,10 @@ class PhoLogTrack(TrackWidget):
     
     def __init__(self, pho_log_df: pd.DataFrame, name: str = "PHO_LOG", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
+        # Set PHO_LOG-specific colors (purple theme)
+        self._pen_color = (200, 100, 255, 255)
+        self._brush_color = (200, 100, 255, 150)
+        
         self.pho_log_df = pho_log_df.copy()
         
         # Ensure datetime columns are datetime type
@@ -743,55 +748,6 @@ class PhoLogTrack(TrackWidget):
             intervals.append((start_dt, end_dt))
         
         return intervals
-    
-    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
-        """Override to use PHO_LOG-specific colors."""
-        # Cache intervals if not already cached
-        if self._all_intervals_ts is None:
-            self._cache_intervals()
-        
-        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
-            self.plot_widget.clear()
-            self.rect_items.clear()
-            return
-        
-        # Filter by time range if provided (using numpy for speed)
-        if time_range is not None:
-            start_dt, end_dt = time_range
-            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
-            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
-            
-            # Fast numpy filtering: keep intervals that overlap with visible range
-            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
-            visible_intervals = self._all_intervals_ts[mask]
-        else:
-            visible_intervals = self._all_intervals_ts
-        
-        # Clear existing rectangles
-        self.plot_widget.clear()
-        self.rect_items.clear()
-        
-        if len(visible_intervals) == 0:
-            return
-        
-        # PHO_LOG-specific colors (purple theme)
-        pen = pg.mkPen(color=(200, 100, 255, 255), width=1)
-        brush = pg.mkBrush(color=(200, 100, 255, 150))
-        
-        # Create rectangles
-        for start_ts, end_ts in visible_intervals:
-            width = end_ts - start_ts
-            if width <= 0:
-                continue
-            
-            x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
-            y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
-            
-            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
-            self.rect_items.append(rect_item)
-        
-        # Set y-axis range
-        self.plot_widget.setYRange(0, 1, padding=0.1)
 
 
 class WhisperTrack(TrackWidget):
@@ -805,6 +761,10 @@ class WhisperTrack(TrackWidget):
     
     def __init__(self, whisper_df: pd.DataFrame, name: str = "Whisper", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
+        # Set Whisper-specific colors (cyan/teal theme)
+        self._pen_color = (50, 200, 255, 255)
+        self._brush_color = (50, 200, 255, 150)
+        
         self.whisper_df = whisper_df.copy()
         
         # Ensure datetime columns are datetime type
@@ -845,55 +805,6 @@ class WhisperTrack(TrackWidget):
             intervals.append((start_dt, end_dt))
         
         return intervals
-    
-    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
-        """Override to use Whisper-specific colors."""
-        # Cache intervals if not already cached
-        if self._all_intervals_ts is None:
-            self._cache_intervals()
-        
-        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
-            self.plot_widget.clear()
-            self.rect_items.clear()
-            return
-        
-        # Filter by time range if provided (using numpy for speed)
-        if time_range is not None:
-            start_dt, end_dt = time_range
-            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
-            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
-            
-            # Fast numpy filtering: keep intervals that overlap with visible range
-            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
-            visible_intervals = self._all_intervals_ts[mask]
-        else:
-            visible_intervals = self._all_intervals_ts
-        
-        # Clear existing rectangles
-        self.plot_widget.clear()
-        self.rect_items.clear()
-        
-        if len(visible_intervals) == 0:
-            return
-        
-        # Whisper-specific colors (cyan/teal theme)
-        pen = pg.mkPen(color=(50, 200, 255, 255), width=1)
-        brush = pg.mkBrush(color=(50, 200, 255, 150))
-        
-        # Create rectangles
-        for start_ts, end_ts in visible_intervals:
-            width = end_ts - start_ts
-            if width <= 0:
-                continue
-            
-            x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
-            y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
-            
-            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
-            self.rect_items.append(rect_item)
-        
-        # Set y-axis range
-        self.plot_widget.setYRange(0, 1, padding=0.1)
 
 
 class TimelineWidget(QWidget):

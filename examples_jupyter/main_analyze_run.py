@@ -57,14 +57,7 @@ from phoofflineeeganalysis.PendingNotebookCode import (
 )
 
 
-def compute_session_summary_metrics(
-    active_only_out_eeg_raws,
-    results,
-    stream_infos_df: Optional[pd.DataFrame],
-    output_folder: Path,
-    freq_min: float = 1.0,
-    freq_max: float = 40.0,
-) -> Path:
+def compute_session_summary_metrics(active_only_out_eeg_raws, results, stream_infos_df: Optional[pd.DataFrame], output_folder: Path, freq_min: float = 1.0, freq_max: float = 40.0) -> Path:
     """
     Compute simple per-session summary metrics from the spectrogram outputs and save to CSV.
 
