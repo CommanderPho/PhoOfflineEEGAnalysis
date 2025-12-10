@@ -4,8 +4,17 @@ Historical Data Timeline Widget using PyQtGraph.
 This module provides a high-performance timeline visualization for multiple data modalities.
 Each modality is rendered as a separate track, with all tracks synchronized by datetime.
 
+Available Track Classes:
+    - VideoMetadataTrack: For video recordings (video_start_datetime, video_end_datetime)
+    - EEGRecordingTrack: For EEG recordings (recording_datetime, duration_sec)
+    - MotionRecordingTrack: For motion recordings (recording_datetime, duration_sec)
+    - PhoLogTrack: For PHO_LOG_TO_LSL annotations (onset, duration)
+    - WhisperTrack: For Whisper transcript intervals (onset, duration)
+
 Usage:
-    from phoofflineeeganalysis.analysis.UI.historical_data_timeline import TimelineWidget, VideoMetadataTrack
+    from phoofflineeeganalysis.analysis.UI.historical_data_timeline import (
+        TimelineWidget, VideoMetadataTrack, EEGRecordingTrack, MotionRecordingTrack
+    )
     from phoofflineeeganalysis.analysis.video_metadata import VideoMetadataParser
     
     # Load video metadata
@@ -18,6 +27,10 @@ Usage:
     video_track = VideoMetadataTrack(video_df)
     timeline.add_track(video_track)
     
+    # Add EEG track (from SessionModality.df)
+    eeg_track = EEGRecordingTrack(eeg_df)
+    timeline.add_track(eeg_track)
+    
     # Show widget
     timeline.show()
 """
@@ -26,8 +39,9 @@ from datetime import datetime
 from typing import Optional, List, Tuple
 import numpy as np
 import pandas as pd
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QScrollArea
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel
 from PyQt5.QtCore import Qt, pyqtSignal, QTimer
+from PyQt5.QtGui import QFont
 import pyqtgraph as pg
 from pyqtgraph import PlotWidget, ViewBox, DateAxisItem
 
@@ -71,10 +85,28 @@ class TrackWidget(QWidget):
         # Store rectangles for efficient updates
         self.rect_items: List[pg.PlotDataItem] = []
         
-        # Set up layout
-        layout = QVBoxLayout(self)
+        # Create label for track name (left edge)
+        self.name_label = QLabel(name, self)
+        self.name_label.setAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        self.name_label.setFixedWidth(80)  # Fixed width for label
+        # Rotate text vertically
+        font = QFont()
+        font.setPointSize(9)
+        self.name_label.setFont(font)
+        self.name_label.setStyleSheet("""
+            QLabel {
+                background-color: #f0f0f0;
+                border: 1px solid #d0d0d0;
+                padding: 2px;
+            }
+        """)
+        
+        # Set up horizontal layout: label on left, plot on right
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.plot_widget)
+        layout.setSpacing(0)
+        layout.addWidget(self.name_label)
+        layout.addWidget(self.plot_widget, stretch=1)
         
     def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
         """
@@ -184,7 +216,7 @@ class VideoMetadataTrack(TrackWidget):
     - video_end_datetime: datetime
     """
     
-    def __init__(self, video_df: pd.DataFrame, name: str = "Video Recordings", height: int = 60, parent: Optional[QWidget] = None):
+    def __init__(self, video_df: pd.DataFrame, name: str = "Videos", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
         self.video_df = video_df.copy()
         
@@ -231,6 +263,485 @@ class VideoMetadataTrack(TrackWidget):
             intervals.append((start_dt, end_dt))
         
         return intervals
+    
+    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
+        """Override to use video-specific colors."""
+        # Cache intervals if not already cached
+        if self._all_intervals_ts is None:
+            self._cache_intervals()
+        
+        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
+            self.plot_widget.clear()
+            self.rect_items.clear()
+            return
+        
+        # Filter by time range if provided (using numpy for speed)
+        if time_range is not None:
+            start_dt, end_dt = time_range
+            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
+            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
+            
+            # Fast numpy filtering: keep intervals that overlap with visible range
+            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
+            visible_intervals = self._all_intervals_ts[mask]
+        else:
+            visible_intervals = self._all_intervals_ts
+        
+        # Clear existing rectangles
+        self.plot_widget.clear()
+        self.rect_items.clear()
+        
+        if len(visible_intervals) == 0:
+            return
+        
+        # Video-specific colors (blue theme)
+        pen = pg.mkPen(color=(100, 150, 200, 255), width=1)
+        brush = pg.mkBrush(color=(100, 150, 200, 150))
+        
+        # Create rectangles
+        for start_ts, end_ts in visible_intervals:
+            width = end_ts - start_ts
+            if width <= 0:
+                continue
+            
+            x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
+            y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
+            
+            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
+            self.rect_items.append(rect_item)
+        
+        # Set y-axis range
+        self.plot_widget.setYRange(0, 1, padding=0.1)
+
+
+class EEGRecordingTrack(TrackWidget):
+    """
+    Track widget for displaying EEG recording intervals from SessionModality.
+    
+    Expects a DataFrame with columns:
+    - recording_datetime: datetime (start time)
+    - duration_sec: Timedelta or float (duration in seconds)
+    """
+    
+    def __init__(self, eeg_df: pd.DataFrame, name: str = "EEG", height: int = 60, parent: Optional[QWidget] = None):
+        super().__init__(name=name, height=height, parent=parent)
+        self.eeg_df = eeg_df.copy()
+        
+        # Ensure datetime columns are datetime type
+        if 'recording_datetime' in self.eeg_df.columns:
+            self.eeg_df['recording_datetime'] = pd.to_datetime(self.eeg_df['recording_datetime'])
+        
+        # Cache intervals immediately
+        self._cache_intervals()
+        
+        # Initial display update (show all)
+        self.update_display()
+    
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
+        """Extract EEG recording intervals from DataFrame."""
+        if self.eeg_df.empty or 'recording_datetime' not in self.eeg_df.columns:
+            return []
+        
+        intervals = []
+        for _, row in self.eeg_df.iterrows():
+            start_dt = row.get('recording_datetime')
+            
+            if pd.isna(start_dt):
+                continue
+            
+            # Get duration
+            duration = row.get('duration_sec', None)
+            if pd.isna(duration):
+                continue
+            
+            # Convert duration to seconds if it's a Timedelta
+            if isinstance(duration, pd.Timedelta):
+                duration_seconds = duration.total_seconds()
+            else:
+                duration_seconds = float(duration)
+            
+            if duration_seconds <= 0:
+                continue
+            
+            # Calculate end datetime
+            from datetime import timedelta
+            end_dt = start_dt + timedelta(seconds=duration_seconds)
+            
+            intervals.append((start_dt, end_dt))
+        
+        return intervals
+    
+    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
+        """Override to use EEG-specific colors."""
+        # Cache intervals if not already cached
+        if self._all_intervals_ts is None:
+            self._cache_intervals()
+        
+        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
+            self.plot_widget.clear()
+            self.rect_items.clear()
+            return
+        
+        # Filter by time range if provided (using numpy for speed)
+        if time_range is not None:
+            start_dt, end_dt = time_range
+            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
+            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
+            
+            # Fast numpy filtering: keep intervals that overlap with visible range
+            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
+            visible_intervals = self._all_intervals_ts[mask]
+        else:
+            visible_intervals = self._all_intervals_ts
+        
+        # Clear existing rectangles
+        self.plot_widget.clear()
+        self.rect_items.clear()
+        
+        if len(visible_intervals) == 0:
+            return
+        
+        # EEG-specific colors (green/blue theme)
+        pen = pg.mkPen(color=(50, 200, 100, 255), width=1)
+        brush = pg.mkBrush(color=(50, 200, 100, 150))
+        
+        # Create rectangles
+        for start_ts, end_ts in visible_intervals:
+            width = end_ts - start_ts
+            if width <= 0:
+                continue
+            
+            x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
+            y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
+            
+            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
+            self.rect_items.append(rect_item)
+        
+        # Set y-axis range
+        self.plot_widget.setYRange(0, 1, padding=0.1)
+
+
+class MotionRecordingTrack(TrackWidget):
+    """
+    Track widget for displaying motion recording intervals from SessionModality.
+    
+    Expects a DataFrame with columns:
+    - recording_datetime: datetime (start time)
+    - duration_sec: Timedelta or float (duration in seconds)
+    """
+    
+    def __init__(self, motion_df: pd.DataFrame, name: str = "Motion", height: int = 60, parent: Optional[QWidget] = None):
+        super().__init__(name=name, height=height, parent=parent)
+        self.motion_df = motion_df.copy()
+        
+        # Ensure datetime columns are datetime type
+        if 'recording_datetime' in self.motion_df.columns:
+            self.motion_df['recording_datetime'] = pd.to_datetime(self.motion_df['recording_datetime'])
+        
+        # Cache intervals immediately
+        self._cache_intervals()
+        
+        # Initial display update (show all)
+        self.update_display()
+    
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
+        """Extract motion recording intervals from DataFrame."""
+        if self.motion_df.empty or 'recording_datetime' not in self.motion_df.columns:
+            return []
+        
+        intervals = []
+        for _, row in self.motion_df.iterrows():
+            start_dt = row.get('recording_datetime')
+            
+            if pd.isna(start_dt):
+                continue
+            
+            # Get duration
+            duration = row.get('duration_sec', None)
+            if pd.isna(duration):
+                continue
+            
+            # Convert duration to seconds if it's a Timedelta
+            if isinstance(duration, pd.Timedelta):
+                duration_seconds = duration.total_seconds()
+            else:
+                duration_seconds = float(duration)
+            
+            if duration_seconds <= 0:
+                continue
+            
+            # Calculate end datetime
+            from datetime import timedelta
+            end_dt = start_dt + timedelta(seconds=duration_seconds)
+            
+            intervals.append((start_dt, end_dt))
+        
+        return intervals
+    
+    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
+        """Override to use motion-specific colors."""
+        # Cache intervals if not already cached
+        if self._all_intervals_ts is None:
+            self._cache_intervals()
+        
+        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
+            self.plot_widget.clear()
+            self.rect_items.clear()
+            return
+        
+        # Filter by time range if provided (using numpy for speed)
+        if time_range is not None:
+            start_dt, end_dt = time_range
+            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
+            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
+            
+            # Fast numpy filtering: keep intervals that overlap with visible range
+            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
+            visible_intervals = self._all_intervals_ts[mask]
+        else:
+            visible_intervals = self._all_intervals_ts
+        
+        # Clear existing rectangles
+        self.plot_widget.clear()
+        self.rect_items.clear()
+        
+        if len(visible_intervals) == 0:
+            return
+        
+        # Motion-specific colors (orange/red theme)
+        pen = pg.mkPen(color=(255, 150, 50, 255), width=1)
+        brush = pg.mkBrush(color=(255, 150, 50, 150))
+        
+        # Create rectangles
+        for start_ts, end_ts in visible_intervals:
+            width = end_ts - start_ts
+            if width <= 0:
+                continue
+            
+            x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
+            y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
+            
+            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
+            self.rect_items.append(rect_item)
+        
+        # Set y-axis range
+        self.plot_widget.setYRange(0, 1, padding=0.1)
+
+
+class PhoLogTrack(TrackWidget):
+    """
+    Track widget for displaying PHO_LOG_TO_LSL annotation intervals.
+    
+    Expects a DataFrame with columns:
+    - onset: datetime (start time)
+    - duration: float or Timedelta (duration in seconds)
+    """
+    
+    def __init__(self, pho_log_df: pd.DataFrame, name: str = "PHO_LOG", height: int = 60, parent: Optional[QWidget] = None):
+        super().__init__(name=name, height=height, parent=parent)
+        self.pho_log_df = pho_log_df.copy()
+        
+        # Ensure datetime columns are datetime type
+        if 'onset' in self.pho_log_df.columns:
+            self.pho_log_df['onset'] = pd.to_datetime(self.pho_log_df['onset'])
+        
+        # Cache intervals immediately
+        self._cache_intervals()
+        
+        # Initial display update (show all)
+        self.update_display()
+    
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
+        """Extract PHO_LOG annotation intervals from DataFrame."""
+        if self.pho_log_df.empty or 'onset' not in self.pho_log_df.columns:
+            return []
+        
+        intervals = []
+        for _, row in self.pho_log_df.iterrows():
+            start_dt = row.get('onset')
+            
+            if pd.isna(start_dt):
+                continue
+            
+            # Get duration
+            duration = row.get('duration', None)
+            if pd.isna(duration):
+                # If no duration, use a minimal duration (e.g., 0.1 seconds for point events)
+                duration = 0.1
+            
+            # Convert duration to seconds if it's a Timedelta
+            if isinstance(duration, pd.Timedelta):
+                duration_seconds = duration.total_seconds()
+            else:
+                duration_seconds = float(duration)
+            
+            if duration_seconds <= 0:
+                duration_seconds = 0.1  # Minimum duration for visibility
+            
+            # Calculate end datetime
+            from datetime import timedelta
+            end_dt = start_dt + timedelta(seconds=duration_seconds)
+            
+            intervals.append((start_dt, end_dt))
+        
+        return intervals
+    
+    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
+        """Override to use PHO_LOG-specific colors."""
+        # Cache intervals if not already cached
+        if self._all_intervals_ts is None:
+            self._cache_intervals()
+        
+        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
+            self.plot_widget.clear()
+            self.rect_items.clear()
+            return
+        
+        # Filter by time range if provided (using numpy for speed)
+        if time_range is not None:
+            start_dt, end_dt = time_range
+            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
+            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
+            
+            # Fast numpy filtering: keep intervals that overlap with visible range
+            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
+            visible_intervals = self._all_intervals_ts[mask]
+        else:
+            visible_intervals = self._all_intervals_ts
+        
+        # Clear existing rectangles
+        self.plot_widget.clear()
+        self.rect_items.clear()
+        
+        if len(visible_intervals) == 0:
+            return
+        
+        # PHO_LOG-specific colors (purple theme)
+        pen = pg.mkPen(color=(200, 100, 255, 255), width=1)
+        brush = pg.mkBrush(color=(200, 100, 255, 150))
+        
+        # Create rectangles
+        for start_ts, end_ts in visible_intervals:
+            width = end_ts - start_ts
+            if width <= 0:
+                continue
+            
+            x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
+            y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
+            
+            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
+            self.rect_items.append(rect_item)
+        
+        # Set y-axis range
+        self.plot_widget.setYRange(0, 1, padding=0.1)
+
+
+class WhisperTrack(TrackWidget):
+    """
+    Track widget for displaying Whisper transcript intervals.
+    
+    Expects a DataFrame with columns:
+    - onset: datetime (start time)
+    - duration: float or Timedelta (duration in seconds)
+    """
+    
+    def __init__(self, whisper_df: pd.DataFrame, name: str = "Whisper", height: int = 60, parent: Optional[QWidget] = None):
+        super().__init__(name=name, height=height, parent=parent)
+        self.whisper_df = whisper_df.copy()
+        
+        # Ensure datetime columns are datetime type
+        if 'onset' in self.whisper_df.columns:
+            self.whisper_df['onset'] = pd.to_datetime(self.whisper_df['onset'])
+        
+        # Cache intervals immediately
+        self._cache_intervals()
+        
+        # Initial display update (show all)
+        self.update_display()
+    
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
+        """Extract Whisper transcript intervals from DataFrame."""
+        if self.whisper_df.empty or 'onset' not in self.whisper_df.columns:
+            return []
+        
+        intervals = []
+        for _, row in self.whisper_df.iterrows():
+            start_dt = row.get('onset')
+            
+            if pd.isna(start_dt):
+                continue
+            
+            # Get duration
+            duration = row.get('duration', None)
+            if pd.isna(duration):
+                # If no duration, use a minimal duration (e.g., 0.1 seconds for point events)
+                duration = 0.1
+            
+            # Convert duration to seconds if it's a Timedelta
+            if isinstance(duration, pd.Timedelta):
+                duration_seconds = duration.total_seconds()
+            else:
+                duration_seconds = float(duration)
+            
+            if duration_seconds <= 0:
+                duration_seconds = 0.1  # Minimum duration for visibility
+            
+            # Calculate end datetime
+            from datetime import timedelta
+            end_dt = start_dt + timedelta(seconds=duration_seconds)
+            
+            intervals.append((start_dt, end_dt))
+        
+        return intervals
+    
+    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
+        """Override to use Whisper-specific colors."""
+        # Cache intervals if not already cached
+        if self._all_intervals_ts is None:
+            self._cache_intervals()
+        
+        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
+            self.plot_widget.clear()
+            self.rect_items.clear()
+            return
+        
+        # Filter by time range if provided (using numpy for speed)
+        if time_range is not None:
+            start_dt, end_dt = time_range
+            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
+            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
+            
+            # Fast numpy filtering: keep intervals that overlap with visible range
+            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
+            visible_intervals = self._all_intervals_ts[mask]
+        else:
+            visible_intervals = self._all_intervals_ts
+        
+        # Clear existing rectangles
+        self.plot_widget.clear()
+        self.rect_items.clear()
+        
+        if len(visible_intervals) == 0:
+            return
+        
+        # Whisper-specific colors (cyan/teal theme)
+        pen = pg.mkPen(color=(50, 200, 255, 255), width=1)
+        brush = pg.mkBrush(color=(50, 200, 255, 150))
+        
+        # Create rectangles
+        for start_ts, end_ts in visible_intervals:
+            width = end_ts - start_ts
+            if width <= 0:
+                continue
+            
+            x = np.array([start_ts, start_ts, end_ts, end_ts, start_ts], dtype=np.float64)
+            y = np.array([0, 1, 1, 0, 0], dtype=np.float64)
+            
+            rect_item = self.plot_widget.plot(x, y, pen=pen, fillLevel=0, fillBrush=brush, brush=brush)
+            self.rect_items.append(rect_item)
+        
+        # Set y-axis range
+        self.plot_widget.setYRange(0, 1, padding=0.1)
 
 
 class TimelineWidget(QWidget):
