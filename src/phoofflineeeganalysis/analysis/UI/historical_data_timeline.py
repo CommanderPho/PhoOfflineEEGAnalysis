@@ -44,47 +44,49 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel, QGraphicsRectItem, QMessageBox
-from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QPointF
+from PyQt5.QtCore import Qt, pyqtSignal, QTimer, QPointF, QEvent
 from PyQt5.QtGui import QFont, QPen, QBrush
 import pyqtgraph as pg
 from pyqtgraph import PlotWidget, ViewBox, DateAxisItem
 
 
-def _parse_duration_to_seconds(duration: Union[pd.Timedelta, float, int, str, None]) -> Optional[float]:
+def _parse_duration_to_seconds_vectorized(series: pd.Series) -> pd.Series:
     """
-    Convert duration to seconds, handling various input types.
+    Convert duration series to seconds, handling various input types vectorially.
+    """
+    if series.empty:
+        return series
     
-    Args:
-        duration: Duration as Timedelta, float, int, string representation, or None
+    # If already numeric, return as is (coerced to float)
+    if pd.api.types.is_numeric_dtype(series):
+        return pd.to_numeric(series, errors='coerce')
         
-    Returns:
-        Duration in seconds as float, or None if invalid/missing
-    """
+    # If timedelta, get total_seconds
+    if pd.api.types.is_timedelta64_dtype(series):
+        return series.dt.total_seconds()
+        
+    # Try converting to timedelta first, then seconds
+    # This handles strings like '0 days 00:00:19.00'
+    try:
+        # errors='coerce' will turn invalid parsing into NaT
+        deltas = pd.to_timedelta(series, errors='coerce')
+        return deltas.dt.total_seconds()
+    except Exception:
+        # Fallback to numeric conversion
+        return pd.to_numeric(series, errors='coerce')
+
+
+def _parse_duration_to_seconds(duration: Union[pd.Timedelta, float, int, str, None]) -> Optional[float]:
+    """Legacy helper for scalar conversion."""
     if duration is None or pd.isna(duration):
         return None
-    
-    # Handle Timedelta objects
-    if isinstance(duration, pd.Timedelta):
-        return duration.total_seconds()
-    
-    # Handle string representations of Timedeltas (e.g., '0 days 00:00:19.001019200')
-    if isinstance(duration, str):
-        try:
-            # Try parsing as Timedelta string
-            td = pd.to_timedelta(duration)
-            return td.total_seconds()
-        except (ValueError, TypeError):
-            # If that fails, try parsing as float
-            try:
-                return float(duration)
-            except (ValueError, TypeError):
-                return None
-    
-    # Handle numeric types
     try:
-        duration_float = float(duration)
-        return duration_float if duration_float > 0 else None
-    except (ValueError, TypeError):
+        if isinstance(duration, pd.Timedelta):
+            return duration.total_seconds()
+        if isinstance(duration, str):
+            return pd.to_timedelta(duration).total_seconds()
+        return float(duration)
+    except Exception:
         return None
 
 
@@ -92,14 +94,13 @@ class TrackWidget(QWidget):
     """
     Base class for timeline tracks that display modality-specific data.
     
-    Each track renders rectangles corresponding to recording intervals (start, end).
-    Subclasses should implement _get_recording_intervals() to provide the data.
+    Optimized to use pg.BarGraphItem for high-performance rendering.
     """
     
     def __init__(self, name: str, height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.name = name
-        self.height = height
+        self.track_height = height
         
         # Create PlotWidget with DateAxisItem for proper datetime x-axis
         self.plot_widget = PlotWidget(parent=self, axisItems={'bottom': DateAxisItem(orientation='bottom')})
@@ -115,33 +116,31 @@ class TrackWidget(QWidget):
         # Configure ViewBox for wheel zoom and pan
         vb = self.plot_widget.getViewBox()
         vb.setMouseMode(vb.PanMode)
-        # Enable wheel zoom (should be default, but make explicit)
         vb.enableAutoRange(enable=False)
-        # Set limits to allow full range
         vb.setLimits(xMin=None, xMax=None, yMin=0, yMax=1)
         
         # Cache all intervals for performance
-        self._all_intervals: List[Tuple[datetime, datetime]] = []
-        self._all_intervals_ts: Optional[np.ndarray] = None  # Cached as timestamps
+        self._all_intervals_ts: Optional[np.ndarray] = None  # Cached as [N, 2] array of (start_ts, end_ts)
         
         # Store metadata for each interval (index matches _all_intervals_ts)
         self._interval_metadata: List[Dict[str, Any]] = []
         
-        # Store rectangles for efficient updates
-        self.rect_items: List[QGraphicsRectItem] = []
+        # Single item for rendering all bars
+        self.bar_graph_item = pg.BarGraphItem(x=[], height=[], width=[], brush='b')
+        self.plot_widget.addItem(self.bar_graph_item)
         
         # Default colors (can be overridden by subclasses)
         self._pen_color = (100, 150, 200, 255)
         self._brush_color = (100, 150, 200, 150)
         
-        # Cache pen and brush objects for performance
-        self._pen: Optional[QPen] = None
-        self._brush: Optional[QBrush] = None
+        # Cache pen and brush objects
+        self._pen = None
+        self._brush = None
         
         # Create label for track name (left edge)
         self.name_label = QLabel(name, self)
         self.name_label.setAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        self.name_label.setFixedWidth(80)  # Fixed width for label
+        self.name_label.setFixedWidth(80)
         font = QFont()
         font.setPointSize(9)
         self.name_label.setFont(font)
@@ -160,160 +159,239 @@ class TrackWidget(QWidget):
         layout.addWidget(self.name_label)
         layout.addWidget(self.plot_widget, stretch=1)
         
-        # Connect mouse events for tooltips and click handlers
-        vb = self.plot_widget.getViewBox()
-        vb.sigSceneMouseMoved.connect(self._on_mouse_moved)
-        vb.sigSceneMouseClicked.connect(self._on_mouse_clicked)
+        # Event handling
+        self.plot_widget.scene().sigMouseMoved.connect(self._on_mouse_moved)
+        self.plot_widget.scene().sigMouseClicked.connect(self._on_mouse_clicked)
+        self._last_hover_idx = -1
         
     def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
-        """
-        Return list of (start_datetime, end_datetime) tuples for recordings.
+        """Legacy method for subclasses."""
+        raise NotImplementedError("Subclasses must implement _get_recording_intervals() or _get_recording_intervals_vectorized()")
         
-        Subclasses must implement this method.
+    def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
         """
-        raise NotImplementedError("Subclasses must implement _get_recording_intervals()")
+        Return cached intervals and metadata.
+        Can be overridden by subclasses for performance.
+        Default implementation calls _get_recording_intervals() (legacy).
+        """
+        # Fallback to legacy loop-based method
+        intervals = self._get_recording_intervals()
+        
+        # Force cache metadata via legacy method if not matching
+        # (The legacy _get_recording_intervals usually populated _interval_metadata via _cache_intervals logic,
+        # but here we need to ensure metadata is ready)
+        # Actually _cache_intervals called _get_recording_intervals then _cache_metadata.
+        # So we should call _cache_metadata here if we rely on legacy.
+        self._cache_metadata() # Populates self._interval_metadata in legacy subclass
+        metadata = self._interval_metadata
+        
+        if not intervals:
+            return np.empty((0, 2)), []
+            
+        n = len(intervals)
+        starts = np.empty(n, dtype=np.float64)
+        ends = np.empty(n, dtype=np.float64)
+        
+        for i, (s, e) in enumerate(intervals):
+            starts[i] = s.timestamp() if isinstance(s, datetime) else float(s)
+            ends[i] = e.timestamp() if isinstance(e, datetime) else float(e)
+            
+        return np.column_stack([starts, ends]), metadata
     
     def _cache_intervals(self):
         """Cache intervals as timestamps for fast filtering."""
-        intervals = self._get_recording_intervals()
-        self._all_intervals = intervals
+        intervals_ts, metadata = self._get_recording_intervals_vectorized()
+        self._all_intervals_ts = intervals_ts
+        self._interval_metadata = metadata
         
-        # Cache metadata alongside intervals
-        self._cache_metadata()
-        
-        if intervals:
-            # Convert to numpy array of timestamps for fast filtering (vectorized)
-            # Pre-allocate arrays for better performance
-            n = len(intervals)
-            starts = np.empty(n, dtype=np.float64)
-            ends = np.empty(n, dtype=np.float64)
-            
-            for i, (s, e) in enumerate(intervals):
-                starts[i] = s.timestamp() if isinstance(s, datetime) else float(s)
-                ends[i] = e.timestamp() if isinstance(e, datetime) else float(e)
-            
-            self._all_intervals_ts = np.column_stack([starts, ends])
-        else:
-            self._all_intervals_ts = None
+        if self._all_intervals_ts is not None and len(self._all_intervals_ts) > 0:
+             if self._all_intervals_ts.ndim != 2 or self._all_intervals_ts.shape[1] != 2:
+                 self._all_intervals_ts = None
+                 self._interval_metadata = []
     
     def _cache_metadata(self):
-        """
-        Cache metadata for each interval.
-        
-        Subclasses should override this to extract metadata from their DataFrames.
-        Default implementation creates empty metadata dicts.
-        """
-        self._interval_metadata = [{} for _ in self._all_intervals]
+        """Legacy metadata method."""
+        pass # Implemented by subclasses
     
     def _get_metadata_for_interval(self, interval_index: int) -> Dict[str, Any]:
-        """Get metadata for a specific interval by index."""
         if 0 <= interval_index < len(self._interval_metadata):
             return self._interval_metadata[interval_index]
         return {}
     
-    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
+    def _ensure_utc_naive(self, series: pd.Series) -> pd.Series:
         """
-        Update the track display for the given time range.
+        Normalize a datetime Series to naive UTC.
+        - If aware: convert to UTC, then make naive.
+        - If naive: assume Local Time, localize to system timezone, convert to UTC, then make naive.
+        """
+        if series.empty:
+            return series
+
+        # Convert to datetime first to ensure properties exist
+        series = pd.to_datetime(series, errors='coerce')
         
-        Args:
-            time_range: Optional (start_datetime, end_datetime) tuple to limit display.
-                       If None, displays all recordings.
-        """
-        # Cache intervals if not already cached
+        # specific check for naive vs aware is tricky on a Series if mixed, 
+        # but generally we expect a column to be consistent.
+        # However, checking the first non-null value is a good heuristic.
+        first_valid = series.dropna().first_valid_index()
+        if first_valid is None:
+            return series
+            
+        first_val = series[first_valid]
+        if first_val.tzinfo is None:
+            # Naive -> Assume Local -> UTC
+            # Get system local timezone
+            local_tz = datetime.now().astimezone().tzinfo
+            return series.dt.tz_localize(local_tz).dt.tz_convert('UTC').dt.tz_convert(None)
+        else:
+            # Aware -> UTC -> Naive
+            return series.dt.tz_convert('UTC').dt.tz_convert(None)
+
+    def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
         if self._all_intervals_ts is None:
             self._cache_intervals()
+            
+        # Helper to setup colors if needed
+        if self._pen is None:
+            self._pen = pg.mkPen(self._pen_color)
+            self._brush = pg.mkBrush(self._brush_color) # pg.mkBrush handles (r,g,b,a) tuple
         
         if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
-            self.plot_widget.clear()
-            self.rect_items.clear()
+            self.bar_graph_item.setOpts(x=[], height=[], width=[])
             return
+            
+        visible_intervals = self._all_intervals_ts
         
-        # Filter by time range if provided (using numpy for speed)
         if time_range is not None:
             start_dt, end_dt = time_range
             start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
             end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
             
-            # Fast numpy filtering: keep intervals that overlap with visible range
-            mask = (self._all_intervals_ts[:, 1] >= start_ts) & (self._all_intervals_ts[:, 0] <= end_ts)
+            mask = (self._all_intervals_ts[:, 0] <= end_ts) & (self._all_intervals_ts[:, 1] >= start_ts)
             visible_intervals = self._all_intervals_ts[mask]
-            visible_indices = np.where(mask)[0]
-        else:
-            visible_intervals = self._all_intervals_ts
-            visible_indices = np.arange(len(self._all_intervals_ts))
-        
-        # Clear existing rectangles
-        self.plot_widget.clear()
-        self.rect_items.clear()
         
         if len(visible_intervals) == 0:
+            self.bar_graph_item.setOpts(x=[], height=[], width=[])
             return
+            
+        # Robust filtering: Check for NaNs, Infs, and valid width
+        starts = visible_intervals[:, 0]
+        ends = visible_intervals[:, 1]
         
-        # Filter out invalid intervals (width <= 0) before rendering
-        valid_mask = visible_intervals[:, 1] > visible_intervals[:, 0]
+        # Check for finiteness (no NaNs or Infs)
+        finite_mask = np.isfinite(starts) & np.isfinite(ends)
+        
+        # Check for valid time order
+        order_mask = ends > starts
+        
+        valid_mask = finite_mask & order_mask
         valid_intervals = visible_intervals[valid_mask]
-        valid_indices = visible_indices[valid_mask]  # Map to original indices
         
         if len(valid_intervals) > 0:
-            # Create or update cached pen and brush objects
-            if self._pen is None or self._pen.color().getRgb()[:3] != self._pen_color[:3]:
-                self._pen = QPen(Qt.NoPen)  # No border for cleaner look
-                self._pen.setColor(pg.mkColor(self._pen_color))
-                self._pen.setWidth(1)
+            v_starts = valid_intervals[:, 0]
+            v_ends = valid_intervals[:, 1]
+            widths = v_ends - v_starts
+            # Center x at start + width/2
+            centers = v_starts + (widths / 2.0)
             
-            if self._brush is None or self._brush.color().getRgb()[:3] != self._brush_color[:3]:
-                self._brush = QBrush(pg.mkColor(self._brush_color))
+        if len(valid_intervals) > 0:
+            v_starts = valid_intervals[:, 0]
+            v_ends = valid_intervals[:, 1]
+            widths = v_ends - v_starts
+            # Center x at start + width/2
+            centers = v_starts + (widths / 2.0)
             
-            # Create rectangles using QGraphicsRectItem for better performance
-            n_rects = len(valid_intervals)
-            for i in range(n_rects):
-                start_ts = valid_intervals[i, 0]
-                end_ts = valid_intervals[i, 1]
-                width = end_ts - start_ts
-                
-                # Create rectangle item
-                rect_item = QGraphicsRectItem(start_ts, 0.0, width, 1.0)
-                rect_item.setPen(self._pen)
-                rect_item.setBrush(self._brush)
-                
-                # Set tooltip with metadata
-                orig_idx = valid_indices[i]
-                metadata = self._get_metadata_for_interval(orig_idx)
-                tooltip_text = self._format_tooltip(metadata, start_ts, end_ts)
-                rect_item.setToolTip(tooltip_text)
-                
-                # Store interval index for click detection
-                rect_item.setData(0, orig_idx)
-                
-                self.plot_widget.addItem(rect_item)
-                self.rect_items.append(rect_item)
-        
-        # Set y-axis range
-        self.plot_widget.setYRange(0, 1, padding=0.1)
-    
+            self.bar_graph_item.setOpts(
+                x=centers,
+                height=np.ones_like(centers),
+                width=widths,
+                brush=self._brush,
+                pen=self._pen
+            )
+        else:
+            self.bar_graph_item.setOpts(x=[], height=[], width=[])
+            
+        self.plot_widget.setYRange(0, 1, padding=0.0)
+
     def get_time_range(self) -> Optional[Tuple[datetime, datetime]]:
-        """
-        Get the overall time range covered by this track's data.
-        
-        Returns:
-            (start_datetime, end_datetime) tuple or None if no data.
-        """
         if self._all_intervals_ts is None:
             self._cache_intervals()
         
         if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
             return None
         
-        start_ts = self._all_intervals_ts[:, 0].min()
-        end_ts = self._all_intervals_ts[:, 1].max()
+        start_ts = np.min(self._all_intervals_ts[:, 0])
+        end_ts = np.max(self._all_intervals_ts[:, 1])
         
         return (datetime.fromtimestamp(start_ts), datetime.fromtimestamp(end_ts))
-    
-    def _format_tooltip(self, metadata: Dict[str, Any], start_ts: float, end_ts: float) -> str:
-        """Format tooltip text for an interval."""
-        lines = []
         
-        # Add filename if available
+    def _find_interval_at_pos(self, x_pos: float) -> int:
+        if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
+            return -1
+        
+        starts = self._all_intervals_ts[:, 0]
+        ends = self._all_intervals_ts[:, 1]
+        mask = (starts <= x_pos) & (ends >= x_pos)
+        indices = np.where(mask)[0]
+        
+        if len(indices) > 0:
+            return indices[-1]
+        return -1
+
+    def _on_mouse_moved(self, pos):
+        if self._all_intervals_ts is None:
+            return
+
+        # Map to view
+        if not self.plot_widget.sceneBoundingRect().contains(pos):
+             return
+        
+        vb = self.plot_widget.getViewBox()
+        mouse_point = vb.mapSceneToView(pos)
+        x_ts = mouse_point.x()
+        y_val = mouse_point.y()
+        
+        if not (0 <= y_val <= 1):
+             self.plot_widget.setToolTip("")
+             self._last_hover_idx = -1
+             return
+             
+        idx = self._find_interval_at_pos(x_ts)
+        
+        if idx != self._last_hover_idx:
+            self._last_hover_idx = idx
+            if idx != -1:
+                metadata = self._get_metadata_for_interval(idx)
+                if metadata:
+                    start_ts = self._all_intervals_ts[idx, 0]
+                    end_ts = self._all_intervals_ts[idx, 1]
+                    tooltip = self._format_tooltip(metadata, start_ts, end_ts)
+                    self.plot_widget.setToolTip(tooltip)
+                else:
+                    self.plot_widget.setToolTip("")
+            else:
+                self.plot_widget.setToolTip("")
+
+    def _on_mouse_clicked(self, event):
+        if event.button() == Qt.LeftButton:
+             vb = self.plot_widget.getViewBox()
+             scene_pos = event.scenePos()
+             if self.plot_widget.sceneBoundingRect().contains(scene_pos):
+                 mouse_point = vb.mapSceneToView(scene_pos)
+                 x_ts = mouse_point.x()
+                 y_val = mouse_point.y()
+                 
+                 if 0 <= y_val <= 1:
+                     idx = self._find_interval_at_pos(x_ts)
+                     if idx != -1:
+                        metadata = self._get_metadata_for_interval(idx)
+                        start_ts = self._all_intervals_ts[idx, 0]
+                        end_ts = self._all_intervals_ts[idx, 1]
+                        self._show_metadata_dialog(metadata, start_ts, end_ts)
+                        event.accept()
+
+    def _format_tooltip(self, metadata: Dict[str, Any], start_ts: float, end_ts: float) -> str:
+        lines = []
         filename = metadata.get('filename', metadata.get('file_path', ''))
         if filename:
             if isinstance(filename, (str, Path)):
@@ -321,112 +399,38 @@ class TrackWidget(QWidget):
             if filename:
                 lines.append(f"File: {filename}")
         
-        # Add start/end datetime
         start_dt = datetime.fromtimestamp(start_ts)
         end_dt = datetime.fromtimestamp(end_ts)
-        duration = end_dt - start_dt
         lines.append(f"Start: {start_dt.strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append(f"End: {end_dt.strftime('%Y-%m-%d %H:%M:%S')}")
-        lines.append(f"Duration: {duration}")
+        lines.append(f"Duration: {end_dt - start_dt}")
         
-        # Add additional metadata
-        if 'duration' in metadata and metadata['duration']:
-            lines.append(f"Duration: {metadata['duration']}")
-        if 'fps' in metadata and metadata['fps']:
-            lines.append(f"FPS: {metadata['fps']}")
-        if 'resolution' in metadata:
-            lines.append(f"Resolution: {metadata['resolution']}")
-        if 'file_size' in metadata and metadata['file_size']:
-            size_mb = metadata['file_size'] / (1024 * 1024) if isinstance(metadata['file_size'], (int, float)) else metadata['file_size']
-            lines.append(f"Size: {size_mb:.2f} MB" if isinstance(size_mb, (int, float)) else f"Size: {size_mb}")
-        
+        for k in ['duration_sec', 'fps', 'resolution']:
+            if k in metadata and metadata[k]:
+                label = k.replace('_', ' ').title()
+                lines.append(f"{label}: {metadata[k]}")
+
         return '\n'.join(lines)
     
-    def _on_mouse_moved(self, evt):
-        """Handle mouse move events for tooltip display."""
-        if evt is None:
-            return
-        
-        vb = self.plot_widget.getViewBox()
-        if vb is None:
-            return
-        
-        # Convert scene coordinates to view coordinates
-        scene_pos = evt.scenePos()
-        view_pos = vb.mapSceneToView(scene_pos)
-        
-        # Check if mouse is over any rectangle
-        mouse_x = view_pos.x()
-        mouse_y = view_pos.y()
-        
-        # Only show tooltip if mouse is in y-range [0, 1]
-        if not (0 <= mouse_y <= 1):
-            return
-        
-        # Find which rectangle contains the mouse x-coordinate
-        for rect_item in self.rect_items:
-            rect = rect_item.rect()
-            if rect.left() <= mouse_x <= rect.right():
-                # Tooltip is already set on the item, Qt will handle it
-                return
-    
-    def _on_mouse_clicked(self, evt):
-        """Handle mouse click events to show detailed metadata."""
-        if evt is None or evt.button() != Qt.LeftButton:
-            return
-        
-        vb = self.plot_widget.getViewBox()
-        if vb is None:
-            return
-        
-        # Convert scene coordinates to view coordinates
-        scene_pos = evt.scenePos()
-        view_pos = vb.mapSceneToView(scene_pos)
-        
-        mouse_x = view_pos.x()
-        mouse_y = view_pos.y()
-        
-        # Only handle clicks in y-range [0, 1]
-        if not (0 <= mouse_y <= 1):
-            return
-        
-        # Find which rectangle was clicked
-        for rect_item in self.rect_items:
-            rect = rect_item.rect()
-            if rect.left() <= mouse_x <= rect.right():
-                # Get interval index from item data
-                interval_idx = rect_item.data(0)
-                if interval_idx >= 0 and interval_idx < len(self._interval_metadata):
-                    metadata = self._interval_metadata[interval_idx]
-                    self._show_metadata_dialog(metadata, rect.left(), rect.right())
-                return
-    
     def _show_metadata_dialog(self, metadata: Dict[str, Any], start_ts: float, end_ts: float):
-        """Show detailed metadata in a dialog."""
         start_dt = datetime.fromtimestamp(start_ts)
         end_dt = datetime.fromtimestamp(end_ts)
-        duration = end_dt - start_dt
         
         lines = [f"<b>{self.name} Recording Details</b>", ""]
-        
-        # Add time information
         lines.append(f"<b>Time Range:</b>")
         lines.append(f"  Start: {start_dt.strftime('%Y-%m-%d %H:%M:%S.%f')}")
         lines.append(f"  End: {end_dt.strftime('%Y-%m-%d %H:%M:%S.%f')}")
-        lines.append(f"  Duration: {duration}")
+        lines.append(f"  Duration: {end_dt - start_dt}")
         lines.append("")
         
-        # Add metadata fields
         if metadata:
             lines.append("<b>Metadata:</b>")
             for key, value in sorted(metadata.items()):
                 if value is not None and value != '':
-                    # Format key nicely
                     display_key = key.replace('_', ' ').title()
                     lines.append(f"  {display_key}: {value}")
         
-        message = '\n'.join(lines)
-        QMessageBox.information(self, f"{self.name} Recording Details", message)
+        QMessageBox.information(self, f"{self.name} Recording Details", '\n'.join(lines))
 
 
 class VideoMetadataTrack(TrackWidget):
@@ -444,13 +448,15 @@ class VideoMetadataTrack(TrackWidget):
         self._pen_color = (100, 150, 200, 255)
         self._brush_color = (100, 150, 200, 150)
         
+        # Store original df
         self.video_df = video_df.copy()
+        self._display_df = pd.DataFrame() # Filtered and processed for display
         
-        # Ensure datetime columns are datetime type
+        # Ensure datetime columns are datetime type and normalized
         if 'video_start_datetime' in self.video_df.columns:
-            self.video_df['video_start_datetime'] = pd.to_datetime(self.video_df['video_start_datetime'])
+            self.video_df['video_start_datetime'] = self._ensure_utc_naive(self.video_df['video_start_datetime'])
         if 'video_end_datetime' in self.video_df.columns:
-            self.video_df['video_end_datetime'] = pd.to_datetime(self.video_df['video_end_datetime'])
+            self.video_df['video_end_datetime'] = self._ensure_utc_naive(self.video_df['video_end_datetime'])
         
         # Cache intervals immediately
         self._cache_intervals()
@@ -458,37 +464,79 @@ class VideoMetadataTrack(TrackWidget):
         # Initial display update (show all)
         self.update_display()
     
-    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
-        """Extract video recording intervals from DataFrame."""
+    def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+        """Extract video recording intervals from DataFrame using vectorized operations."""
         if self.video_df.empty or 'video_start_datetime' not in self.video_df.columns:
-            return []
+            self._display_df = pd.DataFrame()
+            return np.empty((0, 2)), []
         
-        intervals = []
-        for _, row in self.video_df.iterrows():
-            start_dt = row.get('video_start_datetime')
-            end_dt = row.get('video_end_datetime')
-            
-            if pd.isna(start_dt):
-                continue
-            
-            # If end_dt is not available, try to calculate from duration
-            if pd.isna(end_dt):
-                if 'video_duration' in row:
-                    duration = row.get('video_duration', 0)
-                    if pd.notna(duration) and duration > 0:
-                        from datetime import timedelta
-                        end_dt = start_dt + timedelta(seconds=float(duration))
-                    else:
-                        continue
-                else:
-                    continue
-            
-            if pd.isna(end_dt):
-                continue
-            
-            intervals.append((start_dt, end_dt))
+        df = self.video_df.copy()
         
-        return intervals
+        # Calculate end times if missing
+        start_dt = df['video_start_datetime']
+        end_dt = df['video_end_datetime'] if 'video_end_datetime' in df.columns else pd.Series(pd.NaT, index=df.index)
+        
+        # If end_dt is NaT, try video_duration
+        if 'video_duration' in df.columns:
+            # Coerce duration to numeric seconds
+            durations = pd.to_numeric(df['video_duration'], errors='coerce')
+            # Calculate end from duration where end_dt is null
+            calc_ends = start_dt + pd.to_timedelta(durations, unit='s')
+            end_dt = end_dt.combine_first(calc_ends)
+            
+        # Filter valid rows
+        mask = start_dt.notna() & end_dt.notna() & (end_dt > start_dt)
+        self._display_df = df[mask].reset_index(drop=True)
+        
+        if self._display_df.empty:
+            return np.empty((0, 2)), []
+            
+        # Create numpy array of timestamps
+        starts = self._display_df['video_start_datetime'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        # Recalculate ends for display_df (since we reset index and combined logic above was on original df)
+        # Actually safer to recompute ends on the filtered df or just add the col
+        
+        # Let's clean up: add computed 'final_end_dt' to df before filtering?
+        # Yes, that's better.
+        df['final_end_dt'] = end_dt
+        self._display_df = df[mask].copy().reset_index(drop=True)
+        
+        starts = self._display_df['video_start_datetime'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        ends = self._display_df['final_end_dt'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        
+        return np.column_stack([starts, ends]), [] 
+    
+    def _get_metadata_for_interval(self, interval_index: int) -> Dict[str, Any]:
+        """Lazy load metadata from dataframe."""
+        if interval_index < 0 or interval_index >= len(self._display_df):
+            return {}
+            
+        row = self._display_df.iloc[interval_index]
+        metadata = {}
+        
+        # Extract filename from video_file_path
+        if 'video_file_path' in row and pd.notna(row['video_file_path']):
+            file_path = row['video_file_path']
+            metadata['file_path'] = str(file_path)
+            metadata['filename'] = Path(file_path).name
+        
+        # Extract other metadata
+        if 'video_duration' in row and pd.notna(row['video_duration']):
+            metadata['duration_sec'] = row['video_duration']
+        
+        if 'video_fps' in row and pd.notna(row['video_fps']):
+            metadata['fps'] = row['video_fps']
+        
+        if 'video_width' in row and pd.notna(row['video_width']) and 'video_height' in row and pd.notna(row['video_height']):
+            metadata['resolution'] = f"{int(row['video_width'])}x{int(row['video_height'])}"
+        
+        if 'video_file_size' in row and pd.notna(row['video_file_size']):
+            metadata['file_size'] = row['video_file_size']
+            
+        return metadata
+
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
+        return [] # Obsolete, but kept to satisfy abstract method if needed (shim handles it)
 
 
 class XDFStreamTrack(TrackWidget):
@@ -510,14 +558,15 @@ class XDFStreamTrack(TrackWidget):
         self._brush_color = (150, 150, 150, 150)
         
         self.stream_df = stream_df.copy()
+        self._display_df = pd.DataFrame()
         
-        # Ensure datetime columns are datetime type
+        # Ensure datetime columns are datetime type and normalized
         if 'recording_datetime' in self.stream_df.columns:
-            self.stream_df['recording_datetime'] = pd.to_datetime(self.stream_df['recording_datetime'])
+            self.stream_df['recording_datetime'] = self._ensure_utc_naive(self.stream_df['recording_datetime'])
         if 'first_timestamp_dt' in self.stream_df.columns:
-            self.stream_df['first_timestamp_dt'] = pd.to_datetime(self.stream_df['first_timestamp_dt'])
+            self.stream_df['first_timestamp_dt'] = self._ensure_utc_naive(self.stream_df['first_timestamp_dt'])
         if 'last_timestamp_dt' in self.stream_df.columns:
-            self.stream_df['last_timestamp_dt'] = pd.to_datetime(self.stream_df['last_timestamp_dt'])
+            self.stream_df['last_timestamp_dt'] = self._ensure_utc_naive(self.stream_df['last_timestamp_dt'])
         
         # Cache intervals immediately
         self._cache_intervals()
@@ -525,58 +574,120 @@ class XDFStreamTrack(TrackWidget):
         # Initial display update (show all)
         self.update_display()
     
-    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
-        """Extract stream recording intervals from DataFrame."""
+    def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+        """Extract stream recording intervals from DataFrame using vectorized operations."""
         if self.stream_df.empty:
-            return []
+            self._display_df = pd.DataFrame()
+            return np.empty((0, 2)), []
         
-        intervals = []
-        for _, row in self.stream_df.iterrows():
-            # Try to get start time
-            start_dt = None
-            if 'recording_datetime' in row and pd.notna(row['recording_datetime']):
-                start_dt = row['recording_datetime']
-            elif 'first_timestamp_dt' in row and pd.notna(row['first_timestamp_dt']):
-                start_dt = row['first_timestamp_dt']
-            
-            if start_dt is None or pd.isna(start_dt):
-                continue
-            
-            # Try to get end time or calculate from duration
-            end_dt = None
-            
-            # First try: use last_timestamp_dt if available
-            if 'last_timestamp_dt' in row and pd.notna(row['last_timestamp_dt']):
-                end_dt = row['last_timestamp_dt']
-            
-            # Second try: calculate from duration_sec_check
-            if end_dt is None or pd.isna(end_dt):
-                duration = row.get('duration_sec_check', None)
-                duration_seconds = _parse_duration_to_seconds(duration)
-                if duration_seconds is not None and duration_seconds > 0:
-                    from datetime import timedelta
-                    end_dt = start_dt + timedelta(seconds=duration_seconds)
-            
-            # Third try: calculate from duration_sec
-            if end_dt is None or pd.isna(end_dt):
-                duration = row.get('duration_sec', None)
-                duration_seconds = _parse_duration_to_seconds(duration)
-                if duration_seconds is not None and duration_seconds > 0:
-                    from datetime import timedelta
-                    end_dt = start_dt + timedelta(seconds=duration_seconds)
-            
-            # If still no end time, skip or use minimal duration
-            if end_dt is None or pd.isna(end_dt):
-                # For marker streams, use a minimal duration
-                if row.get('type') == 'Markers' or row.get('name') == 'TextLogger':
-                    from datetime import timedelta
-                    end_dt = start_dt + timedelta(seconds=0.1)
-                else:
-                    continue
-            
-            intervals.append((start_dt, end_dt))
+        df = self.stream_df.copy()
         
-        return intervals
+        # Calculate start times
+        start_dt = df['recording_datetime'] if 'recording_datetime' in df.columns else pd.Series(pd.NaT, index=df.index)
+        if 'first_timestamp_dt' in df.columns:
+            start_dt = start_dt.combine_first(df['first_timestamp_dt'])
+            
+        # Initialize end_dt
+        end_dt = pd.Series(pd.NaT, index=df.index)
+        
+        # 1. Use last_timestamp_dt
+        if 'last_timestamp_dt' in df.columns:
+            end_dt = df['last_timestamp_dt']
+            
+        # 2. Use duration_sec_check
+        if 'duration_sec_check' in df.columns:
+            durations = _parse_duration_to_seconds_vectorized(df['duration_sec_check'])
+            valid_mask = durations.notna()
+            if valid_mask.any():
+                calc_ends = pd.Series(pd.NaT, index=df.index)
+                calc_ends[valid_mask] = start_dt[valid_mask] + pd.to_timedelta(durations[valid_mask], unit='s')
+                end_dt = end_dt.combine_first(calc_ends)
+            
+        # 3. Use duration_sec
+        if 'duration_sec' in df.columns:
+            durations = _parse_duration_to_seconds_vectorized(df['duration_sec'])
+            valid_mask = durations.notna()
+            if valid_mask.any():
+                calc_ends = pd.Series(pd.NaT, index=df.index)
+                calc_ends[valid_mask] = start_dt[valid_mask] + pd.to_timedelta(durations[valid_mask], unit='s')
+                end_dt = end_dt.combine_first(calc_ends)
+            
+        # 4. Fallback for markers
+        is_marker = pd.Series(False, index=df.index)
+        if 'type' in df.columns:
+            is_marker |= df['type'] == 'Markers'
+        if 'name' in df.columns:
+            is_marker |= df['name'] == 'TextLogger'
+            
+        if is_marker.any():
+            marker_ends = start_dt + pd.Timedelta(seconds=0.1)
+            # Only apply marker default where end is still NaT AND it is a marker
+            end_dt = end_dt.combine_first(marker_ends.where(is_marker))
+            
+        # Filter valid rows
+        mask = start_dt.notna() & end_dt.notna() & (end_dt > start_dt)
+        
+        # Save filtered df with computed ends
+        df['video_start_datetime'] = start_dt # standardized col name for ease or just keep original? 
+        # Actually let's use standardized names for display_df so access is easier? 
+        # But _get_metadata_for_interval needs original columns.
+        # So I'll just add 'final_start_dt' and 'final_end_dt'
+        df['final_start_dt'] = start_dt
+        df['final_end_dt'] = end_dt
+        
+        self._display_df = df[mask].reset_index(drop=True)
+        
+        if self._display_df.empty:
+             return np.empty((0, 2)), []
+             
+        starts = self._display_df['final_start_dt'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        ends = self._display_df['final_end_dt'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        
+        return np.column_stack([starts, ends]), []
+
+    def _get_metadata_for_interval(self, interval_index: int) -> Dict[str, Any]:
+        """Lazy load metadata from XDF stream DataFrame."""
+        if interval_index < 0 or interval_index >= len(self._display_df):
+            return {}
+            
+        row = self._display_df.iloc[interval_index]
+        metadata = {}
+        
+        # Extract filename from xdf_filename
+        if 'xdf_filename' in row and pd.notna(row['xdf_filename']):
+            metadata['xdf_filename'] = row['xdf_filename']
+            metadata['filename'] = row['xdf_filename']
+        
+        # Extract processed filenames
+        if 'proccessed_fif_filename' in row and pd.notna(row['proccessed_fif_filename']):
+            metadata['fif_filename'] = row['proccessed_fif_filename']
+        
+        if 'proccessed_mat_filename' in row and pd.notna(row['proccessed_mat_filename']):
+            metadata['mat_filename'] = row['proccessed_mat_filename']
+        
+        # Extract stream name and type
+        if 'name' in row and pd.notna(row['name']):
+            metadata['stream_name'] = row['name']
+        
+        if 'type' in row and pd.notna(row['type']):
+            metadata['stream_type'] = row['type']
+        
+        # Extract duration
+        duration = row.get('duration_sec_check', row.get('duration_sec', None))
+        if pd.notna(duration):
+             metadata['duration_sec'] = duration
+        
+        # Extract sampling rate if available
+        if 'fs' in row and pd.notna(row['fs']):
+            metadata['sampling_rate'] = row['fs']
+            
+        return metadata
+
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
+        return []
+    
+    def _cache_metadata(self):
+        pass
 
 
 class EEGRecordingTrack(TrackWidget):
@@ -598,7 +709,7 @@ class EEGRecordingTrack(TrackWidget):
         
         # Ensure datetime columns are datetime type
         if 'recording_datetime' in self.eeg_df.columns:
-            self.eeg_df['recording_datetime'] = pd.to_datetime(self.eeg_df['recording_datetime'])
+            self.eeg_df['recording_datetime'] = self._ensure_utc_naive(self.eeg_df['recording_datetime'])
         
         # Cache intervals immediately
         self._cache_intervals()
@@ -606,35 +717,76 @@ class EEGRecordingTrack(TrackWidget):
         # Initial display update (show all)
         self.update_display()
     
-    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
-        """Extract EEG recording intervals from DataFrame."""
+    def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+        """Extract EEG recording intervals from DataFrame using vectorized operations."""
         if self.eeg_df.empty or 'recording_datetime' not in self.eeg_df.columns:
-            return []
+            self._display_df = pd.DataFrame()
+            return np.empty((0, 2)), []
         
-        intervals = []
-        for _, row in self.eeg_df.iterrows():
-            start_dt = row.get('recording_datetime')
-            
-            if pd.isna(start_dt):
-                continue
-            
-            # Get duration - try duration_sec_check first, then duration_sec
-            duration = row.get('duration_sec_check', None)
-            if pd.isna(duration):
-                duration = row.get('duration_sec', None)
-            
-            # Parse duration to seconds
-            duration_seconds = _parse_duration_to_seconds(duration)
-            if duration_seconds is None or duration_seconds <= 0:
-                continue
-            
-            # Calculate end datetime
-            from datetime import timedelta
-            end_dt = start_dt + timedelta(seconds=duration_seconds)
-            
-            intervals.append((start_dt, end_dt))
+        df = self.eeg_df.copy()
+        start_dt = df['recording_datetime']
         
-        return intervals
+        # Calculate durations
+        durations = pd.Series(np.nan, index=df.index, dtype=float)
+        if 'duration_sec_check' in df.columns:
+            durations = _parse_duration_to_seconds_vectorized(df['duration_sec_check'])
+        
+        if 'duration_sec' in df.columns:
+            durations2 = _parse_duration_to_seconds_vectorized(df['duration_sec'])
+            durations = durations.combine_first(durations2)
+            
+        # Calculate ends
+        end_dt = pd.Series(pd.NaT, index=df.index)
+        valid_dur_mask = durations.notna()
+        if valid_dur_mask.any():
+            end_dt[valid_dur_mask] = start_dt[valid_dur_mask] + pd.to_timedelta(durations[valid_dur_mask], unit='s')
+        
+        # Filter valid rows
+        mask = start_dt.notna() & end_dt.notna() & (end_dt > start_dt)
+        self._display_df = df[mask].copy().reset_index(drop=True)
+        self._display_df['final_end_dt'] = end_dt[mask].reset_index(drop=True)
+        
+        if self._display_df.empty:
+            return np.empty((0, 2)), []
+            
+        starts = self._display_df['recording_datetime'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        ends = self._display_df['final_end_dt'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        
+        return np.column_stack([starts, ends]), []
+
+    def _get_metadata_for_interval(self, interval_index: int) -> Dict[str, Any]:
+        """Lazy load metadata from EEG DataFrame."""
+        if interval_index < 0 or interval_index >= len(self._display_df):
+            return {}
+            
+        row = self._display_df.iloc[interval_index]
+        metadata = {}
+        
+        # Extract duration
+        duration = row.get('duration_sec_check', row.get('duration_sec', None))
+        if pd.notna(duration):
+             metadata['duration_sec'] = duration
+        
+        # Extract sampling rate if available
+        if 'fs' in row and pd.notna(row['fs']):
+            metadata['sampling_rate'] = row['fs']
+        
+        # Extract xdf filename if available
+        if 'xdf_filename' in row and pd.notna(row['xdf_filename']):
+            metadata['xdf_filename'] = row['xdf_filename']
+            metadata['filename'] = row['xdf_filename']
+        
+        # Extract processed filenames
+        if 'proccessed_fif_filename' in row and pd.notna(row['proccessed_fif_filename']):
+            metadata['fif_filename'] = row['proccessed_fif_filename']
+            
+        return metadata
+
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
+        return []
+        
+    def _cache_metadata(self):
+        pass
 
 
 class MotionRecordingTrack(TrackWidget):
@@ -656,7 +808,7 @@ class MotionRecordingTrack(TrackWidget):
         
         # Ensure datetime columns are datetime type
         if 'recording_datetime' in self.motion_df.columns:
-            self.motion_df['recording_datetime'] = pd.to_datetime(self.motion_df['recording_datetime'])
+            self.motion_df['recording_datetime'] = self._ensure_utc_naive(self.motion_df['recording_datetime'])
         
         # Cache intervals immediately
         self._cache_intervals()
@@ -664,33 +816,65 @@ class MotionRecordingTrack(TrackWidget):
         # Initial display update (show all)
         self.update_display()
     
-    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
-        """Extract motion recording intervals from DataFrame."""
+    def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+        """Extract motion recording intervals from DataFrame using vectorized operations."""
         if self.motion_df.empty or 'recording_datetime' not in self.motion_df.columns:
-            return []
+            self._display_df = pd.DataFrame()
+            return np.empty((0, 2)), []
         
-        intervals = []
-        for _, row in self.motion_df.iterrows():
-            start_dt = row.get('recording_datetime')
-            
-            if pd.isna(start_dt):
-                continue
-            
-            # Get duration
-            duration = row.get('duration_sec', None)
-            
-            # Parse duration to seconds
-            duration_seconds = _parse_duration_to_seconds(duration)
-            if duration_seconds is None or duration_seconds <= 0:
-                continue
-            
-            # Calculate end datetime
-            from datetime import timedelta
-            end_dt = start_dt + timedelta(seconds=duration_seconds)
-            
-            intervals.append((start_dt, end_dt))
+        df = self.motion_df.copy()
+        start_dt = df['recording_datetime']
         
-        return intervals
+        durations = pd.Series(np.nan, index=df.index, dtype=float)
+        if 'duration_sec' in df.columns:
+            durations = _parse_duration_to_seconds_vectorized(df['duration_sec'])
+            
+        end_dt = pd.Series(pd.NaT, index=df.index)
+        valid_dur_mask = durations.notna()
+        if valid_dur_mask.any():
+            end_dt[valid_dur_mask] = start_dt[valid_dur_mask] + pd.to_timedelta(durations[valid_dur_mask], unit='s')
+        
+        # Filter valid rows
+        mask = start_dt.notna() & end_dt.notna() & (end_dt > start_dt)
+        self._display_df = df[mask].copy().reset_index(drop=True)
+        self._display_df['final_end_dt'] = end_dt[mask].reset_index(drop=True)
+        
+        if self._display_df.empty:
+            return np.empty((0, 2)), []
+            
+        starts = self._display_df['recording_datetime'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        ends = self._display_df['final_end_dt'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        
+        return np.column_stack([starts, ends]), []
+
+    def _get_metadata_for_interval(self, interval_index: int) -> Dict[str, Any]:
+        """Lazy load metadata from motion DataFrame."""
+        if interval_index < 0 or interval_index >= len(self._display_df):
+            return {}
+            
+        row = self._display_df.iloc[interval_index]
+        metadata = {}
+        
+        # Extract duration
+        if 'duration_sec' in row and pd.notna(row['duration_sec']):
+            metadata['duration_sec'] = row['duration_sec']
+        
+        # Extract sampling rate if available
+        if 'fs' in row and pd.notna(row['fs']):
+            metadata['sampling_rate'] = row['fs']
+        
+        # Extract xdf filename if available
+        if 'xdf_filename' in row and pd.notna(row['xdf_filename']):
+            metadata['xdf_filename'] = row['xdf_filename']
+            metadata['filename'] = row['xdf_filename']
+            
+        return metadata
+
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
+         return []
+
+    def _cache_metadata(self):
+        pass
 
 
 class PhoLogTrack(TrackWidget):
@@ -712,7 +896,7 @@ class PhoLogTrack(TrackWidget):
         
         # Ensure datetime columns are datetime type
         if 'onset' in self.pho_log_df.columns:
-            self.pho_log_df['onset'] = pd.to_datetime(self.pho_log_df['onset'])
+            self.pho_log_df['onset'] = self._ensure_utc_naive(self.pho_log_df['onset'])
         
         # Cache intervals immediately
         self._cache_intervals()
@@ -720,34 +904,68 @@ class PhoLogTrack(TrackWidget):
         # Initial display update (show all)
         self.update_display()
     
-    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
-        """Extract PHO_LOG annotation intervals from DataFrame."""
+    def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+        """Extract PHO_LOG annotation intervals from DataFrame using vectorized operations."""
         if self.pho_log_df.empty or 'onset' not in self.pho_log_df.columns:
-            return []
+            self._display_df = pd.DataFrame()
+            return np.empty((0, 2)), []
         
-        intervals = []
-        for _, row in self.pho_log_df.iterrows():
-            start_dt = row.get('onset')
-            
-            if pd.isna(start_dt):
-                continue
-            
-            # Get duration
-            duration = row.get('duration', None)
-            
-            # Parse duration to seconds
-            duration_seconds = _parse_duration_to_seconds(duration)
-            if duration_seconds is None or duration_seconds <= 0:
-                # If no duration, use a minimal duration (e.g., 0.1 seconds for point events)
-                duration_seconds = 0.1
-            
-            # Calculate end datetime
-            from datetime import timedelta
-            end_dt = start_dt + timedelta(seconds=duration_seconds)
-            
-            intervals.append((start_dt, end_dt))
+        df = self.pho_log_df.copy()
+        start_dt = df['onset']
         
-        return intervals
+        # Calculate END times
+        if 'duration' in df.columns:
+            durations = _parse_duration_to_seconds_vectorized(df['duration'])
+        else:
+            durations = pd.Series(0.0, index=df.index)
+            
+        durations = durations.fillna(0.1)
+        durations[durations <= 0] = 0.1
+        
+        end_dt = start_dt + pd.to_timedelta(durations, unit='s')
+        
+        # Filter valid rows
+        mask = start_dt.notna() & end_dt.notna()
+        self._display_df = df[mask].copy().reset_index(drop=True)
+        self._display_df['final_end_dt'] = end_dt[mask].reset_index(drop=True)
+        # Store duration for metadata use
+        self._display_df['final_duration'] = durations[mask].reset_index(drop=True)
+        
+        if self._display_df.empty:
+            return np.empty((0, 2)), []
+            
+        starts = self._display_df['onset'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        ends = self._display_df['final_end_dt'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        
+        return np.column_stack([starts, ends]), []
+
+    def _get_metadata_for_interval(self, interval_index: int) -> Dict[str, Any]:
+        """Lazy load metadata from PhoLog DataFrame."""
+        if interval_index < 0 or interval_index >= len(self._display_df):
+            return {}
+            
+        row = self._display_df.iloc[interval_index]
+        metadata = {}
+        
+        # Extract duration from computed final_duration or source
+        if 'final_duration' in row:
+            metadata['duration_sec'] = row['final_duration']
+        elif 'duration' in row and pd.notna(row['duration']):
+             metadata['duration_sec'] = row['duration']
+            
+        # Add message/log info
+        if 'message' in row:
+             metadata['message'] = str(row['message'])
+        if 'label' in row:
+             metadata['label'] = str(row['label'])
+            
+        return metadata
+
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
+         return []
+
+    def _cache_metadata(self):
+        pass
 
 
 class WhisperTrack(TrackWidget):
@@ -769,7 +987,7 @@ class WhisperTrack(TrackWidget):
         
         # Ensure datetime columns are datetime type
         if 'onset' in self.whisper_df.columns:
-            self.whisper_df['onset'] = pd.to_datetime(self.whisper_df['onset'])
+            self.whisper_df['onset'] = self._ensure_utc_naive(self.whisper_df['onset'])
         
         # Cache intervals immediately
         self._cache_intervals()
@@ -777,34 +995,72 @@ class WhisperTrack(TrackWidget):
         # Initial display update (show all)
         self.update_display()
     
-    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
-        """Extract Whisper transcript intervals from DataFrame."""
+    def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+        """Extract Whisper transcript intervals from DataFrame using vectorized operations."""
         if self.whisper_df.empty or 'onset' not in self.whisper_df.columns:
-            return []
+            self._display_df = pd.DataFrame()
+            return np.empty((0, 2)), []
         
-        intervals = []
-        for _, row in self.whisper_df.iterrows():
-            start_dt = row.get('onset')
-            
-            if pd.isna(start_dt):
-                continue
-            
-            # Get duration
-            duration = row.get('duration', None)
-            
-            # Parse duration to seconds
-            duration_seconds = _parse_duration_to_seconds(duration)
-            if duration_seconds is None or duration_seconds <= 0:
-                # If no duration, use a minimal duration (e.g., 0.1 seconds for point events)
-                duration_seconds = 0.1
-            
-            # Calculate end datetime
-            from datetime import timedelta
-            end_dt = start_dt + timedelta(seconds=duration_seconds)
-            
-            intervals.append((start_dt, end_dt))
+        df = self.whisper_df.copy()
+        start_dt = df['onset']
         
-        return intervals
+        # Calculate END times
+        if 'duration' in df.columns:
+            durations = _parse_duration_to_seconds_vectorized(df['duration'])
+        else:
+            durations = pd.Series(0.0, index=df.index)
+            
+        durations = durations.fillna(0.1)
+        durations[durations <= 0] = 0.1
+        
+        end_dt = start_dt + pd.to_timedelta(durations, unit='s')
+        
+        # Filter valid rows
+        mask = start_dt.notna() & end_dt.notna()
+        self._display_df = df[mask].copy().reset_index(drop=True)
+        self._display_df['final_end_dt'] = end_dt[mask].reset_index(drop=True)
+        self._display_df['final_duration'] = durations[mask].reset_index(drop=True)
+        
+        if self._display_df.empty:
+            return np.empty((0, 2)), []
+            
+        starts = self._display_df['onset'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        ends = self._display_df['final_end_dt'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+        
+        return np.column_stack([starts, ends]), []
+
+    def _get_metadata_for_interval(self, interval_index: int) -> Dict[str, Any]:
+        """Lazy load metadata from Whisper DataFrame."""
+        if interval_index < 0 or interval_index >= len(self._display_df):
+            return {}
+            
+        row = self._display_df.iloc[interval_index]
+        metadata = {}
+        
+        if 'final_duration' in row:
+            metadata['duration_sec'] = row['final_duration']
+        
+        # Extract transcript text if available
+        if 'text' in row and pd.notna(row['text']):
+            text = str(row['text'])
+            metadata['text'] = text
+            # Use first part of text as preview
+            if len(text) > 50:
+                metadata['text_preview'] = text[:50] + '...'
+            else:
+                metadata['text_preview'] = text
+        
+        # Extract language if available
+        if 'language' in row and pd.notna(row['language']):
+            metadata['language'] = row['language']
+            
+        return metadata
+
+    def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
+         return []
+
+    def _cache_metadata(self):
+        pass
 
 
 class TimelineWidget(QWidget):
