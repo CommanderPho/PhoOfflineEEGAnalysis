@@ -3,7 +3,13 @@ from typing import Optional, List, Tuple, Dict, Any
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from PyQt5.QtWidgets import QWidget
+import subprocess
+import shutil
+import platform
+import os
+import time
+from PyQt5.QtWidgets import QWidget, QMessageBox
+from PyQt5.QtCore import QTimer, Qt
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.BaseTrackWidget import TrackWidget
 
 
@@ -34,6 +40,14 @@ class VideoMetadataTrack(TrackWidget):
         
         # Cache intervals immediately
         self._cache_intervals()
+        
+        # Double-click detection: track last click time and position
+        self._last_click_time = 0.0
+        self._last_click_pos = None
+        self._double_click_timer = QTimer(self)
+        self._double_click_timer.setSingleShot(True)
+        self._double_click_timer.timeout.connect(self._on_single_click_timeout)
+        self._pending_click_data = None
         
         # Initial display update (show all)
         self.update_display()
@@ -111,3 +125,163 @@ class VideoMetadataTrack(TrackWidget):
 
     def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
         return [] # Obsolete, but kept to satisfy abstract method if needed (shim handles it)
+    
+    def _on_mouse_clicked(self, event):
+        """Override to handle double-clicks for video launching."""
+        # Check for left button click (Qt.LeftButton = 1)
+        if event.button() == 1:  # Qt.LeftButton
+            vb = self.plot_widget.getViewBox()
+            scene_pos = event.scenePos()
+            if self.plot_widget.sceneBoundingRect().contains(scene_pos):
+                mouse_point = vb.mapSceneToView(scene_pos)
+                x_ts = mouse_point.x()
+                y_val = mouse_point.y()
+                
+                if 0 <= y_val <= 1:
+                    idx = self._find_interval_at_pos(x_ts)
+                    if idx != -1:
+                        # Check for double-click (within 300ms and similar position)
+                        current_time = time.time()
+                        is_double_click = (
+                            current_time - self._last_click_time < 0.3 and
+                            self._last_click_pos is not None and
+                            abs(self._last_click_pos - x_ts) < 1.0  # Within 1 second on timeline
+                        )
+                        
+                        if is_double_click:
+                            # Cancel single-click timer and launch video
+                            self._double_click_timer.stop()
+                            self._handle_double_click(idx, x_ts)
+                            event.accept()
+                        else:
+                            # Store click data and start timer for single-click
+                            self._last_click_time = current_time
+                            self._last_click_pos = x_ts
+                            self._pending_click_data = (idx, x_ts)
+                            self._double_click_timer.start(300)  # 300ms delay
+                            event.accept()
+    
+    def _on_single_click_timeout(self):
+        """Handle single-click after double-click timeout."""
+        if self._pending_click_data is not None and self._all_intervals_ts is not None:
+            idx, x_ts = self._pending_click_data
+            self._pending_click_data = None
+            # Call parent's single-click handler for metadata dialog
+            metadata = self._get_metadata_for_interval(idx)
+            start_ts = self._all_intervals_ts[idx, 0]
+            end_ts = self._all_intervals_ts[idx, 1]
+            self._show_metadata_dialog(metadata, start_ts, end_ts)
+    
+    def _handle_double_click(self, interval_index: int, click_timestamp: float):
+        """Handle double-click on video interval to launch video player."""
+        if interval_index < 0 or interval_index >= len(self._display_df) or self._all_intervals_ts is None:
+            return
+        
+        # Get video metadata
+        metadata = self._get_metadata_for_interval(interval_index)
+        video_path_str = metadata.get('file_path', '')
+        
+        if not video_path_str:
+            QMessageBox.warning(self, "Video Launch Error", "No video file path found for this interval.")
+            return
+        
+        video_path = Path(video_path_str)
+        
+        # Validate video file exists
+        if not video_path.exists():
+            QMessageBox.warning(self, "Video Launch Error", f"Video file not found:\n{video_path}")
+            return
+        
+        # Calculate offset from video start to click position
+        start_ts = self._all_intervals_ts[interval_index, 0]
+        end_ts = self._all_intervals_ts[interval_index, 1]
+        offset_seconds = click_timestamp - start_ts
+        
+        # Ensure offset is non-negative and within video duration
+        if offset_seconds < 0:
+            offset_seconds = 0.0
+        
+        video_duration = end_ts - start_ts
+        if offset_seconds > video_duration:
+            offset_seconds = video_duration
+        
+        # Launch video player
+        self._launch_video_player(video_path, offset_seconds)
+    
+    def _find_vlc_executable(self) -> Optional[Path]:
+        """Find VLC executable path."""
+        # Try to find VLC in PATH first
+        vlc_path = shutil.which('vlc')
+        if vlc_path:
+            return Path(vlc_path)
+        
+        # Try common installation paths
+        system = platform.system()
+        if system == "Windows":
+            common_paths = [
+                Path("C:/Program Files/VideoLAN/VLC/vlc.exe"),
+                Path("C:/Program Files (x86)/VideoLAN/VLC/vlc.exe"),
+                Path(os.path.expanduser("~/AppData/Local/Programs/VLC/vlc.exe")),
+            ]
+        elif system == "Darwin":  # macOS
+            common_paths = [
+                Path("/Applications/VLC.app/Contents/MacOS/VLC"),
+                Path("/usr/local/bin/vlc"),
+            ]
+        else:  # Linux
+            common_paths = [
+                Path("/usr/bin/vlc"),
+                Path("/usr/local/bin/vlc"),
+            ]
+        
+        for path in common_paths:
+            if path.exists():
+                return path
+        
+        return None
+    
+    def _launch_video_player(self, video_path: Path, start_offset_seconds: float):
+        """Launch VLC video player with video file starting at specified offset."""
+        vlc_exe = self._find_vlc_executable()
+        
+        if vlc_exe is None:
+            QMessageBox.warning(
+                self,
+                "VLC Not Found",
+                "VLC media player was not found on your system.\n\n"
+                "Please install VLC from https://www.videolan.org/\n"
+                "or ensure it is in your system PATH."
+            )
+            return
+        
+        try:
+            # Build VLC command with start time
+            cmd = [
+                str(vlc_exe),
+                "--start-time", str(int(start_offset_seconds)),
+                str(video_path)
+            ]
+            
+            # Launch VLC in background (detached process)
+            if platform.system() == "Windows":
+                # On Windows, use CREATE_NO_WINDOW to avoid console window
+                subprocess.Popen(
+                    cmd,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            else:
+                # On Unix-like systems, detach from parent process
+                subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True
+                )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Video Launch Error",
+                f"Failed to launch VLC:\n{str(e)}"
+            )
