@@ -1016,8 +1016,8 @@ def render_all_spectograms_to_high_quality_pdfs(
                 cbar = fig.colorbar(mesh, ax=axs.ravel().tolist(), shrink=0.98, pad=0.01)
                 cbar.set_label('Power (dB)')
 
-                if tight_layout:
-                    plt.tight_layout(rect=[0, 0, 1, 0.95] if annotate_file_info else None)
+                # if tight_layout:
+                #     plt.tight_layout(rect=[0, 0, 1, 0.95] if annotate_file_info else None)
 
                 pdf.savefig(fig)
                 plt.close(fig)

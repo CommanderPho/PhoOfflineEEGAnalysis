@@ -175,9 +175,9 @@ class MotionRecordingTrack(TrackWidget):
         self.bar_graph_item.setVisible(False)
 
         start_dt, end_dt = time_range
-        start_ts = start_dt.timestamp()
-        end_ts = end_dt.timestamp()
-        if not np.isfinite(start_ts) or not np.isfinite(end_ts) or end_ts <= start_ts:
+        start_ts = self._safe_datetime_to_timestamp(start_dt)
+        end_ts = self._safe_datetime_to_timestamp(end_dt)
+        if start_ts is None or end_ts is None or not np.isfinite(start_ts) or not np.isfinite(end_ts) or end_ts <= start_ts:
             self._clear_detailed_items()
             return
 

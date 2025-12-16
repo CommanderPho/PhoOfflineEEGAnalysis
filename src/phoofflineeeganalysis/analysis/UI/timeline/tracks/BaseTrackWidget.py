@@ -121,8 +121,11 @@ class TrackWidget(QWidget):
         ends = np.empty(n, dtype=np.float64)
         
         for i, (s, e) in enumerate(intervals):
-            starts[i] = s.timestamp() if isinstance(s, datetime) else float(s)
-            ends[i] = e.timestamp() if isinstance(e, datetime) else float(e)
+            start_ts = self._safe_datetime_to_timestamp(s) if isinstance(s, datetime) else float(s)
+            end_ts = self._safe_datetime_to_timestamp(e) if isinstance(e, datetime) else float(e)
+            # Use NaN for invalid timestamps (will be filtered out later)
+            starts[i] = start_ts if start_ts is not None else np.nan
+            ends[i] = end_ts if end_ts is not None else np.nan
             
         return np.column_stack([starts, ends]), metadata
     
@@ -146,6 +149,26 @@ class TrackWidget(QWidget):
             return self._interval_metadata[interval_index]
         return {}
     
+    def _safe_timestamp_to_datetime(self, ts: float) -> Optional[datetime]:
+        """Safely convert timestamp to datetime, handling Windows OSError."""
+        try:
+            return datetime.fromtimestamp(ts)
+        except (OSError, ValueError, OverflowError):
+            # Windows can raise OSError for out-of-range timestamps
+            # Return None to indicate invalid timestamp
+            return None
+    
+    def _safe_datetime_to_timestamp(self, dt: datetime) -> Optional[float]:
+        """Safely convert datetime to timestamp, handling Windows OSError."""
+        try:
+            if isinstance(dt, datetime):
+                return dt.timestamp()
+            else:
+                return float(dt)
+        except (OSError, ValueError, OverflowError):
+            # Windows can raise OSError for out-of-range datetimes
+            return None
+
     def _ensure_utc_naive(self, series: pd.Series) -> pd.Series:
         """
         Normalize a datetime Series to naive UTC.
@@ -188,8 +211,10 @@ class TrackWidget(QWidget):
         start_ts, end_ts = self._last_visible_range
         if not np.isfinite(start_ts) or not np.isfinite(end_ts) or end_ts <= start_ts:
             return
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        start_dt = self._safe_timestamp_to_datetime(start_ts)
+        end_dt = self._safe_timestamp_to_datetime(end_ts)
+        if start_dt is None or end_dt is None:
+            return
         self.update_display((start_dt, end_dt))
 
     def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
@@ -215,9 +240,10 @@ class TrackWidget(QWidget):
                 if len(x_range) == 2:
                     start_ts, end_ts = float(x_range[0]), float(x_range[1])
                     if np.isfinite(start_ts) and np.isfinite(end_ts) and end_ts > start_ts:
-                        start_dt = datetime.fromtimestamp(start_ts)
-                        end_dt = datetime.fromtimestamp(end_ts)
-                        effective_range = (start_dt, end_dt)
+                        start_dt = self._safe_timestamp_to_datetime(start_ts)
+                        end_dt = self._safe_timestamp_to_datetime(end_ts)
+                        if start_dt is not None and end_dt is not None:
+                            effective_range = (start_dt, end_dt)
 
         # Decide mode based on visible time-span
         use_detailed = False
@@ -240,11 +266,15 @@ class TrackWidget(QWidget):
 
         if time_range is not None:
             start_dt, end_dt = time_range
-            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
-            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
+            start_ts = self._safe_datetime_to_timestamp(start_dt)
+            end_ts = self._safe_datetime_to_timestamp(end_dt)
             
-            mask = (self._all_intervals_ts[:, 0] <= end_ts) & (self._all_intervals_ts[:, 1] >= start_ts)
-            visible_intervals = self._all_intervals_ts[mask]
+            # If timestamp conversion failed, show all intervals
+            if start_ts is None or end_ts is None:
+                visible_intervals = self._all_intervals_ts
+            else:
+                mask = (self._all_intervals_ts[:, 0] <= end_ts) & (self._all_intervals_ts[:, 1] >= start_ts)
+                visible_intervals = self._all_intervals_ts[mask]
         
         if len(visible_intervals) == 0:
             self.bar_graph_item.setOpts(x=[], height=[], width=[])
@@ -303,7 +333,13 @@ class TrackWidget(QWidget):
         start_ts = np.min(self._all_intervals_ts[:, 0])
         end_ts = np.max(self._all_intervals_ts[:, 1])
         
-        return (datetime.fromtimestamp(start_ts), datetime.fromtimestamp(end_ts))
+        start_dt = self._safe_timestamp_to_datetime(start_ts)
+        end_dt = self._safe_timestamp_to_datetime(end_ts)
+        
+        if start_dt is None or end_dt is None:
+            return None
+        
+        return (start_dt, end_dt)
         
     def _find_interval_at_pos(self, x_pos: float) -> int:
         if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
@@ -379,11 +415,15 @@ class TrackWidget(QWidget):
             if filename:
                 lines.append(f"File: {filename}")
         
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
-        lines.append(f"Start: {start_dt.strftime('%Y-%m-%d %H:%M:%S')}")
-        lines.append(f"End: {end_dt.strftime('%Y-%m-%d %H:%M:%S')}")
-        lines.append(f"Duration: {end_dt - start_dt}")
+        start_dt = self._safe_timestamp_to_datetime(start_ts)
+        end_dt = self._safe_timestamp_to_datetime(end_ts)
+        if start_dt is not None and end_dt is not None:
+            lines.append(f"Start: {start_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+            lines.append(f"End: {end_dt.strftime('%Y-%m-%d %H:%M:%S')}")
+            lines.append(f"Duration: {end_dt - start_dt}")
+        else:
+            lines.append(f"Start: {start_ts}")
+            lines.append(f"End: {end_ts}")
         
         for k in ['duration_sec', 'fps', 'resolution']:
             if k in metadata and metadata[k]:
@@ -393,14 +433,18 @@ class TrackWidget(QWidget):
         return '\n'.join(lines)
     
     def _show_metadata_dialog(self, metadata: Dict[str, Any], start_ts: float, end_ts: float):
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        start_dt = self._safe_timestamp_to_datetime(start_ts)
+        end_dt = self._safe_timestamp_to_datetime(end_ts)
         
         lines = [f"<b>{self.name} Recording Details</b>", ""]
         lines.append(f"<b>Time Range:</b>")
-        lines.append(f"  Start: {start_dt.strftime('%Y-%m-%d %H:%M:%S.%f')}")
-        lines.append(f"  End: {end_dt.strftime('%Y-%m-%d %H:%M:%S.%f')}")
-        lines.append(f"  Duration: {end_dt - start_dt}")
+        if start_dt is not None and end_dt is not None:
+            lines.append(f"  Start: {start_dt.strftime('%Y-%m-%d %H:%M:%S.%f')}")
+            lines.append(f"  End: {end_dt.strftime('%Y-%m-%d %H:%M:%S.%f')}")
+            lines.append(f"  Duration: {end_dt - start_dt}")
+        else:
+            lines.append(f"  Start: {start_ts}")
+            lines.append(f"  End: {end_ts}")
         lines.append("")
         
         if metadata:

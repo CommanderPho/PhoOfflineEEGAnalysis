@@ -92,11 +92,15 @@ class TimelineWidget(QWidget):
         
         # Set initial x-axis range if we have data
         if self.overall_time_range is not None:
-            start_ts = self.overall_time_range[0].timestamp() if isinstance(self.overall_time_range[0], datetime) else float(self.overall_time_range[0])
-            end_ts = self.overall_time_range[1].timestamp() if isinstance(self.overall_time_range[1], datetime) else float(self.overall_time_range[1])
+            start_dt = self.overall_time_range[0]
+            end_dt = self.overall_time_range[1]
+            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
+            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
             
-            for track_widget in self.tracks:
-                track_widget.plot_widget.setXRange(start_ts, end_ts, padding=0.05)
+            # Only set range if timestamps are valid
+            if start_ts is not None and end_ts is not None and start_ts < end_ts:
+                for track_widget in self.tracks:
+                    track_widget.plot_widget.setXRange(start_ts, end_ts, padding=0.05)
     
     def remove_track(self, track: TrackWidget):
         """Remove a track from the timeline."""
@@ -130,9 +134,13 @@ class TimelineWidget(QWidget):
         x_range = self.shared_viewbox.viewRange()[0]
         start_ts, end_ts = x_range
         
-        # Convert timestamps back to datetime
-        start_dt = datetime.fromtimestamp(start_ts)
-        end_dt = datetime.fromtimestamp(end_ts)
+        # Convert timestamps back to datetime (safely handle Windows OSError)
+        try:
+            start_dt = datetime.fromtimestamp(start_ts)
+            end_dt = datetime.fromtimestamp(end_ts)
+        except (OSError, ValueError, OverflowError):
+            # Invalid timestamp range, skip update
+            return
         
         # Store pending update and debounce
         self._pending_time_range = (start_dt, end_dt)
@@ -156,10 +164,14 @@ class TimelineWidget(QWidget):
     
     def set_time_range(self, start_dt: datetime, end_dt: datetime):
         """Programmatically set the visible time range."""
-        start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
-        end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
+        try:
+            start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
+            end_ts = end_dt.timestamp() if isinstance(end_dt, datetime) else float(end_dt)
+        except (OSError, ValueError, OverflowError):
+            # Invalid datetime range, skip
+            return
         
-        if self.shared_viewbox is not None:
+        if self.shared_viewbox is not None and start_ts is not None and end_ts is not None and start_ts < end_ts:
             self.shared_viewbox.setXRange(start_ts, end_ts, padding=0.05)
     
     def zoom_to_fit(self):
