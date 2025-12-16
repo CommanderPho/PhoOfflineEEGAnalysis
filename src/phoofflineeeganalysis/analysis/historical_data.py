@@ -767,12 +767,16 @@ class HistoricalData:
         _out_df = []
         for a_file in recording_files:
             if a_file.exists():
-                raw = read_raw(a_file, preload=False)
-                meas_datetime = HistoricalData.get_or_parse_datetime_from_raw(raw, allow_setting_meas_date_from_filename=True)
-                start_time = meas_datetime.timestamp() if hasattr(meas_datetime, 'timestamp') else meas_datetime[0]
-                a_file_metadata = a_file.stat()
-                a_file_metadata_dict = {col_name:getattr(a_file_metadata, file_metadata_key) for col_name, file_metadata_key in metadata_key_dict.items()}
-                _out_df.append({'src_file_name': a_file.stem, 'start_t': start_time, 'src_file': a_file.as_posix(), 'meas_datetime':meas_datetime, **a_file_metadata_dict})
+                try:
+                    raw = read_raw(a_file, preload=False)
+                    meas_datetime = HistoricalData.get_or_parse_datetime_from_raw(raw, allow_setting_meas_date_from_filename=True)
+                    start_time = meas_datetime.timestamp() if hasattr(meas_datetime, 'timestamp') else meas_datetime[0]
+                    a_file_metadata = a_file.stat()
+                    a_file_metadata_dict = {col_name:getattr(a_file_metadata, file_metadata_key) for col_name, file_metadata_key in metadata_key_dict.items()}
+                    _out_df.append({'src_file_name': a_file.stem, 'start_t': start_time, 'src_file': a_file.as_posix(), 'meas_datetime':meas_datetime, **a_file_metadata_dict})
+                except (ValueError, AttributeError, TypeError) as e:
+                    print(f'failed to load file: "{a_file}" with error: {e}. Skipping.')
+                    pass
 
         df = pd.DataFrame.from_records(_out_df) # , index='src_file_name'
         # df['timestamp_dt'] = pd.to_datetime(df['start_t'], unit='s') ## add datetime column
@@ -789,14 +793,17 @@ class HistoricalData:
     
 
     @classmethod
-    def discover_updated_recording_files(cls, eeg_recordings_file_path: Path, eeg_analyzed_parent_export_path: Path):
+    def discover_updated_recording_files(cls, eeg_recordings_file_path: Path, eeg_analyzed_parent_export_path: Path=None, recordings_extensions = ['.fif']):
         """ discover recording files that have been updated since the last run of the script
         
         updated_file_paths, (pending_updated_recording_file_df, modern_found_EEG_recording_file_df, pre_processed_EEG_recording_file_df) = HistoricalData.discover_updated_recording_files(eeg_recordings_file_path=sso.eeg_recordings_file_path, eeg_analyzed_parent_export_path=sso.eeg_analyzed_parent_export_path)
         """
-        pre_processed_EEG_recording_files = cls.get_recording_files(recordings_dir=eeg_analyzed_parent_export_path)
-        pre_processed_EEG_recording_file_df: pd.DataFrame = cls.build_file_comparison_df(recording_files=pre_processed_EEG_recording_files)
-        
+        if eeg_analyzed_parent_export_path is not None:
+            pre_processed_EEG_recording_files = cls.get_recording_files(recordings_dir=eeg_analyzed_parent_export_path, recordings_extensions = recordings_extensions)
+            pre_processed_EEG_recording_file_df: pd.DataFrame = cls.build_file_comparison_df(recording_files=pre_processed_EEG_recording_files)
+        else:
+            pre_processed_EEG_recording_file_df = None
+
         modern_found_EEG_recording_files = cls.get_recording_files(recordings_dir=eeg_recordings_file_path)
         modern_found_EEG_recording_file_df: pd.DataFrame = cls.build_file_comparison_df(recording_files=modern_found_EEG_recording_files)
         
