@@ -38,6 +38,8 @@ class TrackWidget(QWidget):
         vb.setMouseMode(vb.PanMode)
         vb.enableAutoRange(enable=False)
         vb.setLimits(xMin=None, xMax=None, yMin=0, yMax=1)
+        # React to zoom/pan changes to update overview/detailed rendering
+        vb.sigXRangeChanged.connect(self._on_view_range_changed)
         
         # Cache all intervals for performance
         self._all_intervals_ts: Optional[np.ndarray] = None  # Cached as [N, 2] array of (start_ts, end_ts)
@@ -45,7 +47,7 @@ class TrackWidget(QWidget):
         # Store metadata for each interval (index matches _all_intervals_ts)
         self._interval_metadata: List[Dict[str, Any]] = []
         
-        # Single item for rendering all bars
+        # Single item for rendering all bars (overview mode)
         self.bar_graph_item = pg.BarGraphItem(x=[], height=[], width=[], brush='b')
         self.plot_widget.addItem(self.bar_graph_item)
         
@@ -56,6 +58,12 @@ class TrackWidget(QWidget):
         # Cache pen and brush objects
         self._pen = None
         self._brush = None
+
+        # Overview vs detailed rendering configuration
+        # If None, track always renders in overview mode.
+        self.detailed_mode_timespan_threshold_sec: Optional[float] = None
+        self._is_detailed_mode: bool = False
+        self._last_visible_range: Optional[Tuple[float, float]] = None
         
         # Create label for track name (left edge)
         self.name_label = QLabel(name, self)
@@ -167,21 +175,69 @@ class TrackWidget(QWidget):
             # Aware -> UTC -> Naive
             return series.dt.tz_convert('UTC').dt.tz_convert(None)
 
+    def set_detailed_threshold(self, seconds: Optional[float]) -> None:
+        """Set the time-span threshold (in seconds) for switching to detailed rendering."""
+        self.detailed_mode_timespan_threshold_sec = seconds
+
+    def _on_view_range_changed(self, view_box, x_range):
+        """Callback for ViewBox range changes; triggers overview/detailed updates."""
+        if x_range is None or len(x_range) != 2:
+            return
+        self._last_visible_range = (float(x_range[0]), float(x_range[1]))
+        # Convert to datetime range assuming x-axis is UNIX timestamp seconds
+        start_ts, end_ts = self._last_visible_range
+        if not np.isfinite(start_ts) or not np.isfinite(end_ts) or end_ts <= start_ts:
+            return
+        start_dt = datetime.fromtimestamp(start_ts)
+        end_dt = datetime.fromtimestamp(end_ts)
+        self.update_display((start_dt, end_dt))
+
     def update_display(self, time_range: Optional[Tuple[datetime, datetime]] = None):
+        """Dispatch to overview or detailed rendering based on visible time-span."""
         if self._all_intervals_ts is None:
             self._cache_intervals()
             
         # Helper to setup colors if needed
         if self._pen is None:
             self._pen = pg.mkPen(self._pen_color)
-            self._brush = pg.mkBrush(self._brush_color) # pg.mkBrush handles (r,g,b,a) tuple
+            self._brush = pg.mkBrush(self._brush_color)  # pg.mkBrush handles (r,g,b,a) tuple
         
         if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
             self.bar_graph_item.setOpts(x=[], height=[], width=[])
             return
-            
+
+        # Determine effective visible range
+        effective_range = time_range
+        if effective_range is None:
+            vb = self.plot_widget.getViewBox()
+            if vb is not None:
+                x_range = vb.viewRange()[0]
+                if len(x_range) == 2:
+                    start_ts, end_ts = float(x_range[0]), float(x_range[1])
+                    if np.isfinite(start_ts) and np.isfinite(end_ts) and end_ts > start_ts:
+                        start_dt = datetime.fromtimestamp(start_ts)
+                        end_dt = datetime.fromtimestamp(end_ts)
+                        effective_range = (start_dt, end_dt)
+
+        # Decide mode based on visible time-span
+        use_detailed = False
+        if effective_range is not None and self.detailed_mode_timespan_threshold_sec is not None:
+            start_dt, end_dt = effective_range
+            span_sec = (end_dt - start_dt).total_seconds()
+            if span_sec <= self.detailed_mode_timespan_threshold_sec:
+                use_detailed = True
+
+        self._is_detailed_mode = use_detailed
+
+        if use_detailed:
+            self._render_detailed(effective_range)
+        else:
+            self._render_overview(effective_range)
+
+    def _render_overview(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
+        """Default overview rendering: bar-graph intervals."""
         visible_intervals = self._all_intervals_ts
-        
+
         if time_range is not None:
             start_dt, end_dt = time_range
             start_ts = start_dt.timestamp() if isinstance(start_dt, datetime) else float(start_dt)
@@ -214,13 +270,6 @@ class TrackWidget(QWidget):
             # Center x at start + width/2
             centers = v_starts + (widths / 2.0)
             
-        if len(valid_intervals) > 0:
-            v_starts = valid_intervals[:, 0]
-            v_ends = valid_intervals[:, 1]
-            widths = v_ends - v_starts
-            # Center x at start + width/2
-            centers = v_starts + (widths / 2.0)
-            
             self.bar_graph_item.setOpts(
                 x=centers,
                 height=np.ones_like(centers),
@@ -228,10 +277,21 @@ class TrackWidget(QWidget):
                 brush=self._brush,
                 pen=self._pen
             )
+            self.bar_graph_item.setVisible(True)
         else:
             self.bar_graph_item.setOpts(x=[], height=[], width=[])
+            self.bar_graph_item.setVisible(True)
             
         self.plot_widget.setYRange(0, 1, padding=0.0)
+
+    def _render_detailed(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
+        """
+        Default detailed rendering falls back to overview.
+
+        Subclasses can override this to draw data-rich views while reusing
+        the same time_range semantics.
+        """
+        self._render_overview(time_range)
 
     def get_time_range(self) -> Optional[Tuple[datetime, datetime]]:
         if self._all_intervals_ts is None:
