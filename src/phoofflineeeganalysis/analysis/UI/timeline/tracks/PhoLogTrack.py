@@ -276,13 +276,11 @@ class PhoLogTrack(StringDataTrack):
         
         return result
     
-    def _render_detailed(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
+    def _render_text_labels_and_points(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
         """
-        Render detailed view with text labels and point markers.
+        Render text labels and point markers for visible intervals.
+        Called from both overview and detailed modes.
         """
-        # First render bars using base class overview rendering
-        self._render_overview(time_range)
-        
         # Clear existing text items
         for item in self._text_items:
             self.plot_widget.removeItem(item)
@@ -320,8 +318,6 @@ class PhoLogTrack(StringDataTrack):
             visible_indices = visible_indices[:self._max_text_items]
         
         # Separate into bars (duration > 0) and points (duration = 0)
-        bar_indices = []
-        point_indices = []
         point_data = []
         
         for i, idx in enumerate(visible_indices):
@@ -331,10 +327,7 @@ class PhoLogTrack(StringDataTrack):
             row = self._display_df.iloc[idx]
             duration = row.get("final_duration", 0.0) if "final_duration" in row else 0.0
             
-            if duration > 0:
-                bar_indices.append(i)
-            else:
-                point_indices.append(i)
+            if duration == 0:
                 start_ts, end_ts = visible_intervals[i]
                 point_data.append((start_ts, 0.5))  # y=0.5 is middle of track
         
@@ -402,5 +395,22 @@ class PhoLogTrack(StringDataTrack):
             
             self.plot_widget.addItem(text_item)
             self._text_items.append(text_item)
+    
+    def _render_overview(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
+        """
+        Render overview mode with bars and text labels.
+        """
+        # First render bars using base class overview rendering
+        super()._render_overview(time_range)
+        
+        # Always render text labels and point markers
+        self._render_text_labels_and_points(time_range)
+    
+    def _render_detailed(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
+        """
+        Render detailed view with text labels and point markers.
+        """
+        # Use overview rendering which now includes text labels
+        self._render_overview(time_range)
 
 
