@@ -1,0 +1,39 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../mne-python"
+		},
+		{
+			"path": "../mnelab"
+		}
+	],
+	"settings": {
+		"workbench.colorCustomizations": {
+			"editor.lineHighlightBackground": "#1073cf2d",
+			"editor.lineHighlightBorder": "#9fced11f",
+			"activityBar.background": "#153015",
+			"titleBar.activeBackground": "#0f5819",
+			"titleBar.activeForeground": "#dbba00",
+			"scrollbarSlider.background": "#fffb0057",
+			"scrollbarSlider.hoverBackground": "#fffb0082",
+			"scrollbarSlider.activeBackground": "#1db100df",
+			"activityBar.inactiveForeground": "#ffffff3c",
+			"activityBar.foreground": "#ffffff",
+			"notebook.outputContainerBackgroundColor": "#395a3e50",
+			"notebook.outputContainerBorderColor": "#1a5c1a",
+			"notebook.focusedCellBorder": "#ffff00da",
+			"notebook.focusedEditorBorder": "#f6ff00",
+			"notebook.inactiveFocusedCellBorder": "#ffff0063",
+			"titleBar.inactiveBackground": "#53c7628e",
+			"tab.activeBorder": "#2F3C2E",
+			"statusBar.background": "#263825",
+			"statusBar.foreground": "#ffffff",
+			"sideBarSectionHeader.border": "#cecece"
+		},
+		"git.ignoreLimitWarning": true,
+		"python.languageServer": "None"
+	}
+}
