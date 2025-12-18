@@ -332,7 +332,7 @@ if __name__ == "__main__":
     else:
         print(f"\nFound {len(df)} videos:\n")
         print(df.to_string())
-        csv_save_path = Path('output').joinpath('2025-12-15_parsed_videos.csv').resolve()
+        csv_save_path = Path('output').joinpath('2025-12-17_parsed_videos.csv').resolve()
         print(f'csv_save_path: "{csv_save_path.as_posix()}"')
         df.to_csv(csv_save_path)
 

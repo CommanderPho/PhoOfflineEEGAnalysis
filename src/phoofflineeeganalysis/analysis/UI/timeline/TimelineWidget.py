@@ -21,6 +21,10 @@ class TimelineWidget(QWidget):
     Main timeline widget that displays multiple synchronized tracks.
     
     All tracks share the same x-axis (datetime) and can be zoomed/panned together.
+
+    Usage:
+
+        from phoofflineeeganalysis.analysis.UI.timeline.TimelineWidget import TimelineWidget
     """
     
     # Signal emitted when time range changes
