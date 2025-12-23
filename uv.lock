@@ -4085,6 +4085,7 @@ dependencies = [
     { name = "panel" },
     { name = "phantomjs" },
     { name = "phopylslhelper" },
+    { name = "phopymnehelper" },
     { name = "pillow" },
     { name = "plotly" },
     { name = "pycryptodome" },
@@ -4158,7 +4159,8 @@ requires-dist = [
     { name = "pandas", specifier = ">=1.5.3,<3.0.0" },
     { name = "panel", specifier = ">=1.4.5" },
     { name = "phantomjs", specifier = ">=1.4.1" },
-    { name = "phopylslhelper", editable = "../LSL_REPOS/LSL/PhoPyLSLhelper" },
+    { name = "phopylslhelper", editable = "../ACTIVE_DEV/PhoPyLSLhelper" },
+    { name = "phopymnehelper", editable = "../ACTIVE_DEV/PhoPyMNEHelper" },
     { name = "pillow", specifier = ">=11.3.0" },
     { name = "plotly", specifier = ">=6.3.0" },
     { name = "pycryptodome", specifier = ">=3.23.0" },
@@ -4190,7 +4192,7 @@ requires-dist = [
 [[package]]
 name = "phopylslhelper"
 version = "0.1.2"
-source = { editable = "../LSL_REPOS/LSL/PhoPyLSLhelper" }
+source = { editable = "../ACTIVE_DEV/PhoPyLSLhelper" }
 dependencies = [
     { name = "pylsl" },
     { name = "pytz" },
@@ -4200,6 +4202,33 @@ dependencies = [
 requires-dist = [
     { name = "pylsl", specifier = ">=1.16.2" },
     { name = "pytz", specifier = ">=2025.2" },
+]
+
+[[package]]
+name = "phopymnehelper"
+version = "0.1.0"
+source = { editable = "../ACTIVE_DEV/PhoPyMNEHelper" }
+dependencies = [
+    { name = "gmsh" },
+    { name = "meshio" },
+    { name = "mne" },
+    { name = "nptyping" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pyvistaqt" },
+    { name = "trame" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "gmsh", specifier = ">=4.15.0" },
+    { name = "meshio", specifier = ">=5.3.5" },
+    { name = "mne", editable = "../mne-python" },
+    { name = "nptyping", specifier = ">=2.5.0" },
+    { name = "numpy", specifier = "~=1.20" },
+    { name = "pandas", specifier = ">=1.5.3,<3.0.0" },
+    { name = "pyvistaqt", specifier = ">=0.11.3" },
+    { name = "trame", specifier = ">=3.12.0" },
 ]
 
 [[package]]

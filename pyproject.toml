@@ -1,6 +1,6 @@
 [project]
 name = "phoofflineeeganalysis"
-version = "0.2.0"
+version = "0.2.1"
 description = "Add your description here"
 readme = "README.md"
 authors = [
@@ -77,6 +77,7 @@ dependencies = [
     "meshio>=5.3.5",
     "gmsh>=4.15.0",
     "opencv-python>=4.8.0",
+    "phopymnehelper",
 ]
 
 [project.scripts]
@@ -87,5 +88,6 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-phopylslhelper = { path = "../LSL_REPOS/LSL/PhoPyLSLhelper", editable = true }
 mne = { path = "../mne-python", editable = true }
+phopylslhelper = { path = "../ACTIVE_DEV/PhoPyLSLhelper", editable = true }
+phopymnehelper = { path = "../ACTIVE_DEV/PhoPyMNEHelper", editable = true }
