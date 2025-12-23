@@ -130,6 +130,25 @@ class MotionRecordingTrack(TrackWidget):
         pass
 
     # ---- Detailed rendering -------------------------------------------------
+    def _load_motion_timeseries(self, metadata: Dict[str, Any], window_ts: Tuple[float, float]) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
+        """
+        Load motion timeseries for the given interval metadata and time window.
+
+        This delegates to detailed_data_provider if provided. The provider is
+        expected to return a dict mapping channel name to (times, values).
+        """
+        if self.detailed_data_provider is None:
+            return {}
+        return self.detailed_data_provider(metadata, window_ts)
+
+
+    # ==================================================================================================================================================================================================================================================================================== #
+    # DetailedRenderingTrackMixin Implementation                                                                                                                                                                                                                                           #
+    # ==================================================================================================================================================================================================================================================================================== #
+    def set_detailed_threshold(self, seconds: Optional[float]) -> None:
+        """Set the time-span threshold (in seconds) for switching to detailed rendering."""
+        self.detailed_mode_timespan_threshold_sec = seconds
+
 
     def _ensure_detailed_items(self) -> None:
         """Create PlotDataItem per channel for detailed mode if not already present."""
@@ -149,6 +168,7 @@ class MotionRecordingTrack(TrackWidget):
             self.plot_widget.addItem(item)
             self._detailed_curves[ch] = item
 
+
     def _clear_detailed_items(self) -> None:
         """Hide all detailed curves (used when no data or in overview mode)."""
         if not self._detailed_curves:
@@ -157,16 +177,6 @@ class MotionRecordingTrack(TrackWidget):
             item.setData([], [])
             item.setVisible(False)
 
-    def _load_motion_timeseries(self, metadata: Dict[str, Any], window_ts: Tuple[float, float]) -> Dict[str, Tuple[np.ndarray, np.ndarray]]:
-        """
-        Load motion timeseries for the given interval metadata and time window.
-
-        This delegates to detailed_data_provider if provided. The provider is
-        expected to return a dict mapping channel name to (times, values).
-        """
-        if self.detailed_data_provider is None:
-            return {}
-        return self.detailed_data_provider(metadata, window_ts)
 
     def _render_detailed(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
         """
@@ -281,4 +291,7 @@ class MotionRecordingTrack(TrackWidget):
 
         # Detailed mode uses [0, 1] y-range for stacked sub-rows
         self.plot_widget.setYRange(0, 1, padding=0.0)
+
+
+
 

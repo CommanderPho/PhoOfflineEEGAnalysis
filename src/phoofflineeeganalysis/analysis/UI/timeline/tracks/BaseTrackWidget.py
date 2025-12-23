@@ -11,7 +11,38 @@ from pyqtgraph import PlotWidget, DateAxisItem
 from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import BaseDatasource
 
 
-class TrackWidget(QWidget):
+class DetailedRenderingTrackMixin:
+    """ Tracks that displayed detailed renderings must override these methods
+    """
+    # ---- Detailed rendering -------------------------------------------------
+
+    def set_detailed_threshold(self, seconds: Optional[float]) -> None:
+        """Set the time-span threshold (in seconds) for switching to detailed rendering."""
+        self.detailed_mode_timespan_threshold_sec = seconds
+
+    def _ensure_detailed_items(self) -> None:
+        """Create PlotDataItem per channel for detailed mode if not already present."""
+        raise NotImplementedError("Implementing class must override")
+
+
+    def _clear_detailed_items(self) -> None:
+        """Hide all detailed curves (used when no data or in overview mode)."""
+        raise NotImplementedError("Implementing class must override")
+
+    def _render_detailed(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
+        """
+        Default detailed rendering falls back to overview.
+
+        Subclasses can override this to draw data-rich views while reusing
+        the same time_range semantics.
+        """
+        self._render_overview(time_range)
+
+
+
+
+
+class TrackWidget(DetailedRenderingTrackMixin, QWidget):
     """
     Base class for timeline tracks that display modality-specific data.
     
@@ -255,10 +286,6 @@ class TrackWidget(QWidget):
             # Aware -> UTC -> Naive
             return series.dt.tz_convert('UTC').dt.tz_convert(None)
 
-    def set_detailed_threshold(self, seconds: Optional[float]) -> None:
-        """Set the time-span threshold (in seconds) for switching to detailed rendering."""
-        self.detailed_mode_timespan_threshold_sec = seconds
-
     def _on_view_range_changed(self, view_box, x_range):
         """Callback for ViewBox range changes; triggers overview/detailed updates."""
         if x_range is None or len(x_range) != 2:
@@ -371,6 +398,18 @@ class TrackWidget(QWidget):
             
         self.plot_widget.setYRange(0, 1, padding=0.0)
 
+
+    # ==================================================================================================================================================================================================================================================================================== #
+    # DetailedRenderingTrackMixin Implementation                                                                                                                                                                                                                                           #
+    # ==================================================================================================================================================================================================================================================================================== #
+    def set_detailed_threshold(self, seconds: Optional[float]) -> None:
+        """Set the time-span threshold (in seconds) for switching to detailed rendering."""
+        self.detailed_mode_timespan_threshold_sec = seconds
+
+    def _clear_detailed_items(self) -> None:
+        """Hide all detailed curves (used when no data or in overview mode)."""
+        raise NotImplementedError("Implementing class must override")
+
     def _render_detailed(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
         """
         Default detailed rendering falls back to overview.
@@ -379,6 +418,9 @@ class TrackWidget(QWidget):
         the same time_range semantics.
         """
         self._render_overview(time_range)
+
+
+
 
     def get_time_range(self) -> Optional[Tuple[datetime, datetime]]:
         if self._all_intervals_ts is None:

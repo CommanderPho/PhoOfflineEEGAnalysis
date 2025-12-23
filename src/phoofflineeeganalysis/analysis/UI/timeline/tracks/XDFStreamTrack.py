@@ -12,7 +12,8 @@ class XDFStreamTrack(TrackWidget):
     """
     Generic track widget for displaying XDF stream intervals.
     
-    Expects a DataFrame with columns:
+    Typically backed by an `XDFDatasource` (or other `BaseDatasource`) whose
+    DataFrame provides columns:
     - recording_datetime: datetime (start time)
     - duration_sec: Timedelta or float (duration in seconds), can be NaT
     - duration_sec_check: Alternative duration column (optional)
@@ -20,56 +21,34 @@ class XDFStreamTrack(TrackWidget):
     - last_timestamp_dt: Alternative end time (optional)
     """
     
-    def __init__(self, stream_source, name: str = "Stream", height: int = 60, parent: Optional[QWidget] = None):
+    def __init__(self, stream_source: BaseDatasource, name: str = "Stream", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
         # Set stream-specific colors (gray theme)
         self._pen_color = (150, 150, 150, 255)
         self._brush_color = (150, 150, 150, 150)
-        
-        if isinstance(stream_source, BaseDatasource):
-            self.set_datasource(stream_source)
-            df = self._get_full_dataframe()
-            self.stream_df = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
-        else:
-            stream_df = stream_source
-            self.stream_df = stream_df.copy()
-            # Choose an appropriate time column if available
-            time_col = None
-            if 'recording_datetime' in self.stream_df.columns:
-                time_col = 'recording_datetime'
-            elif 'first_timestamp_dt' in self.stream_df.columns:
-                time_col = 'first_timestamp_dt'
-            if time_col is not None:
-                interval_ds = IntervalDataframeDatasource(self.stream_df, time_column_name=time_col, datasource_name=name)
-                self.set_datasource(interval_ds)
-        
+
+        if not isinstance(stream_source, BaseDatasource):
+            raise TypeError(f"XDFStreamTrack expects a BaseDatasource (e.g. XDFDatasource), got {type(stream_source)}")
+
+        # Attach datasource (will trigger initial interval caching and display update)
+        self.set_datasource(stream_source)
+
+        # Cached display DataFrame used for metadata lookups
         self._display_df = pd.DataFrame()
-        
-        # Ensure datetime columns are datetime type and normalized
-        if 'recording_datetime' in self.stream_df.columns:
-            self.stream_df['recording_datetime'] = self._ensure_utc_naive(self.stream_df['recording_datetime'])
-        if 'first_timestamp_dt' in self.stream_df.columns:
-            self.stream_df['first_timestamp_dt'] = self._ensure_utc_naive(self.stream_df['first_timestamp_dt'])
-        if 'last_timestamp_dt' in self.stream_df.columns:
-            self.stream_df['last_timestamp_dt'] = self._ensure_utc_naive(self.stream_df['last_timestamp_dt'])
-        
-        # Cache intervals immediately
-        self._cache_intervals()
-        
-        # Initial display update (show all)
-        self.update_display()
     
     def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
         """Extract stream recording intervals from DataFrame (prefer datasource-backed data)."""
-        if isinstance(self._get_full_dataframe(), pd.DataFrame):
-            df_full = self._get_full_dataframe()
-            if isinstance(df_full, pd.DataFrame):
-                self.stream_df = df_full.copy()
-        if self.stream_df.empty:
+        df_full = self._get_full_dataframe()
+        if not isinstance(df_full, pd.DataFrame) or df_full.empty:
             self._display_df = pd.DataFrame()
             return np.empty((0, 2)), []
-        
-        df = self.stream_df.copy()
+
+        df = df_full.copy()
+
+        # Ensure datetime columns are datetime type and normalized to UTC-naive
+        for col in ['recording_datetime', 'first_timestamp_dt', 'last_timestamp_dt']:
+            if col in df.columns:
+                df[col] = self._ensure_utc_naive(df[col])
         
         # Calculate start times
         start_dt = df['recording_datetime'] if 'recording_datetime' in df.columns else pd.Series(pd.NaT, index=df.index)
@@ -127,8 +106,8 @@ class XDFStreamTrack(TrackWidget):
         self._display_df = df[mask].reset_index(drop=True)
         
         if self._display_df.empty:
-             return np.empty((0, 2)), []
-             
+            return np.empty((0, 2)), []
+        
         starts = self._display_df['final_start_dt'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
         ends = self._display_df['final_end_dt'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
         
