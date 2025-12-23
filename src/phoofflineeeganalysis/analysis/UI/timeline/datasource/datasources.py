@@ -280,8 +280,12 @@ class XDFDatasource(BaseDatasource):
         self._xdf_file_path = a_xdf_file
         self._lab_recorder_xdf = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=self._xdf_file_path, should_load_full_file_data=False, debug_print=False)
         # assert self.time_column_name in df.columns, f"dataframe must have a time column with name '{self.time_column_name}'.\n\tdf.columns: {list(df.columns)}"
-        stream_infos, streams_timestamp_dfs, datasets, datasets_dict = self._lab_recorder_xdf.perform_load_xdf_streams(debug_print=False)
+        
 
+
+    def get_detailed_data(self):
+        assert self._lab_recorder_xdf is not None
+        stream_infos, streams_timestamp_dfs, datasets, datasets_dict = self._lab_recorder_xdf.perform_load_xdf_streams(debug_print=False)
 
 
     @QtCore.pyqtSlot(float, float)
