@@ -529,7 +529,11 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
             print(f'  Processing XDF file {an_xdf_file_idx+1}/{len(lab_recorder_xdf_files)}: "{a_xdf_file.name}"...')
 
             # Load XDF file
-            stream_infos, raws, raws_dict = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=a_xdf_file)
+            _obj = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=a_xdf_file)
+            stream_infos = _obj.stream_infos
+            raws = _obj.datasets
+            raws_dict = _obj.datasets_dict
+
             eeg_raws = raws_dict.get(DataModalityType.EEG.value, [])
 
             if len(eeg_raws) == 0:

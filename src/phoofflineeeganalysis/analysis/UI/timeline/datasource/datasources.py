@@ -240,14 +240,16 @@ class XDFDatasource(BaseDatasource):
         self._df = value
         self.source_data_changed_signal.emit(self)
         
+    
 
     def __init__(self, a_xdf_file: Path, datasource_name='default_plot_datasource'):
         # Initialize the datasource as a BaseDatasource
         BaseDatasource.__init__(self, datasource_name=datasource_name)
         self._xdf_file_path = a_xdf_file
-        stream_infos, raws, raws_dict = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=self._xdf_file_path)
-        
-        assert self.time_column_name in df.columns, f"dataframe must have a time column with name '{self.time_column_name}'.\n\tdf.columns: {list(df.columns)}"
+        self._lab_recorder_xdf = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=self._xdf_file_path, should_load_full_file_data=False, debug_print=False)
+
+
+        # assert self.time_column_name in df.columns, f"dataframe must have a time column with name '{self.time_column_name}'.\n\tdf.columns: {list(df.columns)}"
         
         
         
