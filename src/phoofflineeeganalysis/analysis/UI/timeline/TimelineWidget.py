@@ -11,6 +11,7 @@ from pyqtgraph import ViewBox
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.BaseTrackWidget import TrackWidget
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.EEGRecordingTrack import EEGRecordingTrack
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.MotionRecordingTrack import MotionRecordingTrack
+from phoofflineeeganalysis.analysis.UI.timeline.tracks.StringDataTrack import StringDataTrack
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.PhoLogTrack import PhoLogTrack
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.VideoMetadataTrack import VideoMetadataTrack
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.XDFStreamTrack import XDFStreamTrack
@@ -183,7 +184,7 @@ class TimelineWidget(QWidget):
         if self.overall_time_range is not None:
             self.set_time_range(self.overall_time_range[0], self.overall_time_range[1])
     
-    def add_tracks_from_xdf_streams(self, xdf_stream_infos_df: pd.DataFrame, stream_names: Optional[List[str]] = None):
+    def add_tracks_from_xdf_streams(self, xdf_stream_infos_df: pd.DataFrame, stream_names: Optional[List[str]] = None, fail_on_exception: bool=False):
         """
         Add tracks for each stream type from an xdf_stream_infos_df DataFrame.
         
@@ -209,8 +210,8 @@ class TimelineWidget(QWidget):
         stream_name_to_track = {
             'Epoc X': ('EEG', EEGRecordingTrack),
             'Epoc X Motion': ('Motion', MotionRecordingTrack),
-            'TextLogger': ('PHO_LOG', PhoLogTrack),
-            'EventBoard': ('PHO_LOG', PhoLogTrack),
+            'TextLogger': ('PHO_LOG', StringDataTrack),
+            'EventBoard': ('PHO_LOG', StringDataTrack),
             'Epoc X eQuality': ('EEG Quality', EEGRecordingTrack),  # Use EEG track for quality streams
         }
         
@@ -218,7 +219,8 @@ class TimelineWidget(QWidget):
         type_to_track = {
             'EEG': ('EEG', EEGRecordingTrack),
             'SIGNAL': ('Motion', MotionRecordingTrack),
-            'Markers': ('PHO_LOG', PhoLogTrack),
+            'Markers': ('PHO_LOG', StringDataTrack),
+            # 'Markers': ('PHO_LOG', PhoLogTrack),
             'Raw': ('EEG', EEGRecordingTrack),  # Raw EEG streams
         }
         
@@ -246,17 +248,34 @@ class TimelineWidget(QWidget):
             if track_class is None:
                 track_name = stream_name
                 track_class = XDFStreamTrack
-            
+            else:
+                ## in general, the stream_name should be 
+                track_name = f"{stream_name}<{track_name}>"
+
+
+            # if 'time' not in stream_df:
+            #     stream_df = stream_df.rename(columns={'onset':'time', 'description':'text'}, inplace=False)
+
             # Create track
             try:
                 track = track_class(stream_df, name=track_name)
                 self.add_track(track)
+
+            # except ValueError as e:
+            #     stream_df = stream_df.rename(columns={'onset':'time', 'description':'text'}, inplace=False)
+            #     track = track_class(stream_df, name=track_name)
+            #     self.add_track(track)
+
+
             except Exception as e:
                 # Skip streams that fail to create tracks
                 print(f"Warning: Failed to create track for stream '{stream_name}': {e}")
-                import traceback
-                traceback.print_exc()
-                continue
+                if fail_on_exception:
+                    raise
+                else:
+                    import traceback
+                    traceback.print_exc()    
+                    continue
 
 
 def create_timeline_from_xdf_streams(xdf_stream_infos_df: pd.DataFrame, stream_names: Optional[List[str]] = None, video_df: Optional[pd.DataFrame] = None) -> TimelineWidget:

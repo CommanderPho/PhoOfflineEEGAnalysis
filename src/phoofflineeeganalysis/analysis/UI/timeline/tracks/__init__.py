@@ -9,6 +9,7 @@ from phoofflineeeganalysis.analysis.UI.timeline.tracks.BaseTrackWidget import Tr
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.VideoMetadataTrack import VideoMetadataTrack
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.EEGRecordingTrack import EEGRecordingTrack
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.MotionRecordingTrack import MotionRecordingTrack
+from phoofflineeeganalysis.analysis.UI.timeline.tracks.StringDataTrack import StringDataTrack
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.PhoLogTrack import PhoLogTrack
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.WhisperTrack import WhisperTrack
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.XDFStreamTrack import XDFStreamTrack
@@ -23,6 +24,7 @@ __all__ = [
     'VideoMetadataTrack',
     'EEGRecordingTrack',
     'MotionRecordingTrack',
+    'StringDataTrack',
     'PhoLogTrack',
     'WhisperTrack',
     'XDFStreamTrack',

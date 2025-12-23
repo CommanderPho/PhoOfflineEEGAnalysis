@@ -52,7 +52,7 @@ class PhoLogTrack(StringDataTrack):
                 df['duration'] = 0.0
                 duration_col = 'duration'
         else:
-            raise ValueError("DataFrame must have either 'time' or 'onset' column")
+            raise ValueError(f"DataFrame must have either 'time' or 'onset' column but only has columns: {list(df.columns)}")
         
         # Ensure 'text' column exists if not present (for text rendering)
         if 'text' not in df.columns:
@@ -64,7 +64,7 @@ class PhoLogTrack(StringDataTrack):
             else:
                 df['text'] = ''
         
-        super().__init__(df=df, name=name, height=height, parent=parent, onset_col=onset_col, duration_col=duration_col)
+        super().__init__(df=df, name=name, height=height, parent=parent, onset_col=onset_col, duration_col=duration_col, defer_update=True)
         
         # Set PHO_LOG-specific colors (purple theme)
         self._pen_color = (200, 100, 255, 255)
@@ -90,6 +90,7 @@ class PhoLogTrack(StringDataTrack):
 
         # Initial display update (show all) with new colors
         self.update_display()
+    
     
     def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
         """

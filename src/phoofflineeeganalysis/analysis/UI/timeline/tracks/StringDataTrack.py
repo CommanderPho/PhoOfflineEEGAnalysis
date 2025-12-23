@@ -17,7 +17,7 @@ class StringDataTrack(TrackWidget):
     - duration column: float or Timedelta (duration in seconds)
     """
 
-    def __init__(self, df: pd.DataFrame, name: str = "Comments", height: int = 60, parent: Optional[QWidget] = None, onset_col: str = "onset", duration_col: str = "duration"):
+    def __init__(self, df: pd.DataFrame, name: str = "Comments", height: int = 60, parent: Optional[QWidget] = None, onset_col: str = "onset", duration_col: str = "duration", defer_update:bool=False):
         super().__init__(name=name, height=height, parent=parent)
 
         self._onset_col = onset_col
@@ -30,7 +30,8 @@ class StringDataTrack(TrackWidget):
             self._df[self._onset_col] = self._ensure_utc_naive(self._df[self._onset_col])
 
         self._cache_intervals()
-        self.update_display()
+        if not defer_update:
+            self.update_display()
 
     def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
         """Extract generic string/comment intervals from DataFrame using vectorized operations."""
