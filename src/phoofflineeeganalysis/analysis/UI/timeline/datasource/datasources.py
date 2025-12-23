@@ -165,6 +165,11 @@ class XDFDatasource(BaseDatasource):
         @QtCore.pyqtSlot(float, float) 
         def get_updated_data_window(self, new_start, new_end):
 
+    Usage:
+
+        from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import XDFDatasource, DataframeDatasource, BaseDatasource
+
+
     """
     
     @property
@@ -234,10 +239,21 @@ class XDFDatasource(BaseDatasource):
     @property
     def df(self):
         """The df property."""
-        return self._df
-    @df.setter
-    def df(self, value):
-        self._df = value
+        return self.lab_recorder_xdf.streams_timestamp_dfs
+    # @df.setter
+    # def df(self, value):
+    #     self._df = value
+    #     self.source_data_changed_signal.emit(self)
+
+
+    
+    @property
+    def lab_recorder_xdf(self) -> LabRecorderXDF:
+        """The lab_recorder_xdf property."""
+        return self._lab_recorder_xdf
+    @lab_recorder_xdf.setter
+    def lab_recorder_xdf(self, value: LabRecorderXDF):
+        self._lab_recorder_xdf = value
         self.source_data_changed_signal.emit(self)
         
     
@@ -247,18 +263,9 @@ class XDFDatasource(BaseDatasource):
         BaseDatasource.__init__(self, datasource_name=datasource_name)
         self._xdf_file_path = a_xdf_file
         self._lab_recorder_xdf = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=self._xdf_file_path, should_load_full_file_data=False, debug_print=False)
-
-
         # assert self.time_column_name in df.columns, f"dataframe must have a time column with name '{self.time_column_name}'.\n\tdf.columns: {list(df.columns)}"
-        
-        
-        
-    @classmethod
-    def init_from_times_values(cls, times, values):
-        plot_df = pd.DataFrame({'t': times, 'v': values})
-        return cls(plot_df)
-        
-    
+
+
     @QtCore.pyqtSlot(float, float)
     def get_updated_data_window(self, new_start, new_end):
         """ called to get the data that should be displayed for the window starting at new_start and ending at new_end """
