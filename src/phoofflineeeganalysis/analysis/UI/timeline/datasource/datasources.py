@@ -148,8 +148,24 @@ class DataframeDatasource(BaseDatasource):
     def get_updated_data_window(self, new_start, new_end):
         """ called to get the data that should be displayed for the window starting at new_start and ending at new_end """
         return self.df[self.df[self.time_column_name].between(new_start, new_end)]
-    
 
+
+class IntervalDataframeDatasource(DataframeDatasource):
+    """A DataFrame-backed datasource where the time column name can be customized.
+
+    This is useful for interval/metadata style tables that use columns such as
+    'recording_datetime' or 'video_start_datetime' instead of the default 't'.
+    """
+
+    def __init__(self, df: pd.DataFrame, time_column_name: str, datasource_name: str = 'interval_datasource'):
+        self._custom_time_column_name = time_column_name
+        super().__init__(df=df, datasource_name=datasource_name)
+
+    @property
+    def time_column_name(self):
+        """Override the base time column with the caller-provided name."""
+        return self._custom_time_column_name
+    
 
 from phoofflineeeganalysis.analysis.SavedSessionsProcessor import LabRecorderXDF
 

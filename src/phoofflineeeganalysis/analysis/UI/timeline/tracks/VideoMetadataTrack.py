@@ -11,6 +11,7 @@ import time
 from PyQt5.QtWidgets import QWidget, QMessageBox
 from PyQt5.QtCore import QTimer, Qt
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.BaseTrackWidget import TrackWidget
+from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import BaseDatasource, IntervalDataframeDatasource
 
 
 class VideoMetadataTrack(TrackWidget):
@@ -22,14 +23,22 @@ class VideoMetadataTrack(TrackWidget):
     - video_end_datetime: datetime
     """
     
-    def __init__(self, video_df: pd.DataFrame, name: str = "Videos", height: int = 60, parent: Optional[QWidget] = None):
+    def __init__(self, video_source, name: str = "Videos", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
         # Set video-specific colors (blue theme)
         self._pen_color = (100, 150, 200, 255)
         self._brush_color = (100, 150, 200, 150)
         
-        # Store original df
-        self.video_df = video_df.copy()
+        # Store original df via datasource when possible
+        if isinstance(video_source, BaseDatasource):
+            self.set_datasource(video_source)
+            df = self._get_full_dataframe()
+            self.video_df = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+        else:
+            video_df = video_source
+            self.video_df = video_df.copy()
+            interval_ds = IntervalDataframeDatasource(self.video_df, time_column_name='video_start_datetime', datasource_name=name)
+            self.set_datasource(interval_ds)
         self._display_df = pd.DataFrame() # Filtered and processed for display
         
         # Ensure datetime columns are datetime type and normalized
@@ -53,7 +62,11 @@ class VideoMetadataTrack(TrackWidget):
         self.update_display()
     
     def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
-        """Extract video recording intervals from DataFrame using vectorized operations."""
+        """Extract video recording intervals from DataFrame (prefer datasource-backed data)."""
+        df_full = self._get_full_dataframe()
+        if isinstance(df_full, pd.DataFrame):
+            self.video_df = df_full.copy()
+
         if self.video_df.empty or 'video_start_datetime' not in self.video_df.columns:
             self._display_df = pd.DataFrame()
             return np.empty((0, 2)), []
@@ -74,21 +87,15 @@ class VideoMetadataTrack(TrackWidget):
             
         # Filter valid rows
         mask = start_dt.notna() & end_dt.notna() & (end_dt > start_dt)
-        self._display_df = df[mask].reset_index(drop=True)
+        
+        # Save filtered df with computed ends
+        df['final_end_dt'] = end_dt
+        self._display_df = df[mask].copy().reset_index(drop=True)
         
         if self._display_df.empty:
             return np.empty((0, 2)), []
             
         # Create numpy array of timestamps
-        starts = self._display_df['video_start_datetime'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
-        # Recalculate ends for display_df (since we reset index and combined logic above was on original df)
-        # Actually safer to recompute ends on the filtered df or just add the col
-        
-        # Let's clean up: add computed 'final_end_dt' to df before filtering?
-        # Yes, that's better.
-        df['final_end_dt'] = end_dt
-        self._display_df = df[mask].copy().reset_index(drop=True)
-        
         starts = self._display_df['video_start_datetime'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
         ends = self._display_df['final_end_dt'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
         

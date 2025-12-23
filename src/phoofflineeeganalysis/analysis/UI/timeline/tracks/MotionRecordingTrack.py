@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import QWidget
 import pyqtgraph as pg
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.BaseTrackWidget import TrackWidget
 from phoofflineeeganalysis.analysis.UI.timeline.utils import parse_duration_to_seconds_vectorized
+from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import BaseDatasource, IntervalDataframeDatasource
 
 
 class MotionRecordingTrack(TrackWidget):
@@ -21,13 +22,22 @@ class MotionRecordingTrack(TrackWidget):
     - duration_sec: Timedelta or float (duration in seconds)
     """
 
-    def __init__(self, motion_df: pd.DataFrame, name: str = "Motion", height: int = 60, parent: Optional[QWidget] = None, detailed_data_provider: Optional[Callable[[Dict[str, Any], Tuple[float, float]], Dict[str, Tuple[np.ndarray, np.ndarray]]]] = None):
+    def __init__(self, motion_source, name: str = "Motion", height: int = 60, parent: Optional[QWidget] = None, detailed_data_provider: Optional[Callable[[Dict[str, Any], Tuple[float, float]], Dict[str, Tuple[np.ndarray, np.ndarray]]]] = None):
         super().__init__(name=name, height=height, parent=parent)
         # Set motion-specific colors (orange/red theme)
         self._pen_color = (255, 150, 50, 255)
         self._brush_color = (255, 150, 50, 150)
 
-        self.motion_df = motion_df.copy()
+        # Normalize input into a datasource and backing DataFrame
+        if isinstance(motion_source, BaseDatasource):
+            self.set_datasource(motion_source)
+            df = self._get_full_dataframe()
+            self.motion_df = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+        else:
+            motion_df = motion_source
+            self.motion_df = motion_df.copy()
+            interval_ds = IntervalDataframeDatasource(self.motion_df, time_column_name='recording_datetime', datasource_name=name)
+            self.set_datasource(interval_ds)
 
         # Detailed data provider: (metadata, (start_ts, end_ts)) -> {channel: (times, values)}
         self.detailed_data_provider = detailed_data_provider
@@ -49,7 +59,12 @@ class MotionRecordingTrack(TrackWidget):
         self.update_display()
     
     def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
-        """Extract motion recording intervals from DataFrame using vectorized operations."""
+        """Extract motion recording intervals from DataFrame (prefer datasource-backed data)."""
+        # Prefer datasource-backed DataFrame when available
+        df = self._get_full_dataframe()
+        if isinstance(df, pd.DataFrame):
+            self.motion_df = df.copy()
+
         if self.motion_df.empty or 'recording_datetime' not in self.motion_df.columns:
             self._display_df = pd.DataFrame()
             return np.empty((0, 2)), []

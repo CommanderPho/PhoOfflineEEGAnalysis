@@ -6,6 +6,7 @@ from PyQt5.QtWidgets import QWidget
 
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.BaseTrackWidget import TrackWidget
 from phoofflineeeganalysis.analysis.UI.timeline.utils import parse_duration_to_seconds_vectorized
+from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import BaseDatasource, IntervalDataframeDatasource
 
 
 class StringDataTrack(TrackWidget):
@@ -17,13 +18,21 @@ class StringDataTrack(TrackWidget):
     - duration column: float or Timedelta (duration in seconds)
     """
 
-    def __init__(self, df: pd.DataFrame, name: str = "Comments", height: int = 60, parent: Optional[QWidget] = None, onset_col: str = "onset", duration_col: str = "duration", defer_update:bool=False):
+    def __init__(self, source, name: str = "Comments", height: int = 60, parent: Optional[QWidget] = None, onset_col: str = "onset", duration_col: str = "duration", defer_update:bool=False):
         super().__init__(name=name, height=height, parent=parent)
 
         self._onset_col = onset_col
         self._duration_col = duration_col
 
-        self._df = df.copy()
+        if isinstance(source, BaseDatasource):
+            self.set_datasource(source)
+            df = self._get_full_dataframe()
+            self._df = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+        else:
+            df = source
+            self._df = df.copy()
+            interval_ds = IntervalDataframeDatasource(self._df, time_column_name=self._onset_col, datasource_name=name)
+            self.set_datasource(interval_ds)
         self._display_df = pd.DataFrame()
 
         if self._onset_col in self._df.columns:
@@ -34,7 +43,14 @@ class StringDataTrack(TrackWidget):
             self.update_display()
 
     def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
-        """Extract generic string/comment intervals from DataFrame using vectorized operations."""
+        """Extract generic string/comment intervals from DataFrame using vectorized operations.
+
+        Prefers data coming from an attached datasource when available.
+        """
+        df_full = self._get_full_dataframe()
+        if isinstance(df_full, pd.DataFrame):
+            self._df = df_full.copy()
+
         if self._df.empty or self._onset_col not in self._df.columns:
             self._display_df = pd.DataFrame()
             return np.empty((0, 2)), []

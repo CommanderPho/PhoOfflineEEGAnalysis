@@ -5,6 +5,7 @@ import pandas as pd
 from PyQt5.QtWidgets import QWidget
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.BaseTrackWidget import TrackWidget
 from phoofflineeeganalysis.analysis.UI.timeline.utils import parse_duration_to_seconds_vectorized
+from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import BaseDatasource, IntervalDataframeDatasource
 
 
 class EEGRecordingTrack(TrackWidget):
@@ -16,13 +17,22 @@ class EEGRecordingTrack(TrackWidget):
     - duration_sec: Timedelta or float (duration in seconds)
     """
     
-    def __init__(self, eeg_df: pd.DataFrame, name: str = "EEG", height: int = 60, parent: Optional[QWidget] = None):
+    def __init__(self, eeg_source, name: str = "EEG", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
         # Set EEG-specific colors (green/blue theme)
         self._pen_color = (50, 200, 100, 255)
         self._brush_color = (50, 200, 100, 150)
         
-        self.eeg_df = eeg_df.copy()
+        # Normalize input into a datasource and backing DataFrame
+        if isinstance(eeg_source, BaseDatasource):
+            self.set_datasource(eeg_source)
+            df = self._get_full_dataframe()
+            self.eeg_df = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+        else:
+            eeg_df = eeg_source
+            self.eeg_df = eeg_df.copy()
+            interval_ds = IntervalDataframeDatasource(self.eeg_df, time_column_name='recording_datetime', datasource_name=name)
+            self.set_datasource(interval_ds)
         
         # Ensure datetime columns are datetime type
         if 'recording_datetime' in self.eeg_df.columns:
@@ -35,7 +45,12 @@ class EEGRecordingTrack(TrackWidget):
         self.update_display()
     
     def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
-        """Extract EEG recording intervals from DataFrame using vectorized operations."""
+        """Extract EEG recording intervals from DataFrame (prefer datasource-backed data)."""
+        # Prefer datasource-backed DataFrame when available
+        df = self._get_full_dataframe()
+        if isinstance(df, pd.DataFrame):
+            self.eeg_df = df.copy()
+        
         if self.eeg_df.empty or 'recording_datetime' not in self.eeg_df.columns:
             self._display_df = pd.DataFrame()
             return np.empty((0, 2)), []
@@ -51,7 +66,7 @@ class EEGRecordingTrack(TrackWidget):
         if 'duration_sec' in df.columns:
             durations2 = parse_duration_to_seconds_vectorized(df['duration_sec'])
             durations = durations.combine_first(durations2)
-            
+        
         # Calculate ends
         end_dt = pd.Series(pd.NaT, index=df.index)
         valid_dur_mask = durations.notna()
@@ -65,11 +80,12 @@ class EEGRecordingTrack(TrackWidget):
         
         if self._display_df.empty:
             return np.empty((0, 2)), []
-            
+        
         starts = self._display_df['recording_datetime'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
         ends = self._display_df['final_end_dt'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
         
         return np.column_stack([starts, ends]), []
+
 
     def _get_metadata_for_interval(self, interval_index: int) -> Dict[str, Any]:
         """Lazy load metadata from EEG DataFrame."""

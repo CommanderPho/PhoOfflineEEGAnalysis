@@ -8,6 +8,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 import pyqtgraph as pg
 from pyqtgraph import PlotWidget, DateAxisItem
+from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import BaseDatasource
 
 
 class TrackWidget(QWidget):
@@ -91,6 +92,62 @@ class TrackWidget(QWidget):
         self.plot_widget.scene().sigMouseMoved.connect(self._on_mouse_moved)
         self.plot_widget.scene().sigMouseClicked.connect(self._on_mouse_clicked)
         self._last_hover_idx = -1
+
+        # Optional datasource backing this track (for flexible data access)
+        self._datasource: Optional[BaseDatasource] = None
+        
+    def set_datasource(self, datasource: BaseDatasource) -> None:
+        """Attach a datasource to this track and react to its change signal."""
+        # Disconnect previous datasource if any
+        if self._datasource is not None and hasattr(self._datasource, 'source_data_changed_signal'):
+            try:
+                self._datasource.source_data_changed_signal.disconnect(self._on_datasource_changed)
+            except TypeError:
+                # Was not connected
+                pass
+
+        self._datasource = datasource
+        if self._datasource is not None and hasattr(self._datasource, 'source_data_changed_signal'):
+            self._datasource.source_data_changed_signal.connect(self._on_datasource_changed)
+
+        # Rebuild cached intervals based on new datasource
+        self._cache_intervals()
+        self.update_display()
+
+    def get_datasource(self) -> Optional[BaseDatasource]:
+        """Return the currently attached datasource, if any."""
+        return self._datasource
+
+    def _on_datasource_changed(self, _changed_source: object) -> None:
+        """Slot called when the underlying datasource reports data changes."""
+        self._cache_intervals()
+        self.update_display()
+
+    def _get_full_dataframe(self) -> Optional[pd.DataFrame]:
+        """Best-effort helper to obtain the full DataFrame from the datasource.
+
+        Uses the generic BaseDatasource interface first (total_datasource_start_end_times
+        and get_updated_data_window). Falls back to a .df attribute if present.
+        """
+        if self._datasource is None:
+            return None
+
+        # Prefer the generic API when available
+        try:
+            if hasattr(self._datasource, 'total_datasource_start_end_times') and hasattr(self._datasource, 'get_updated_data_window'):
+                total_range = self._datasource.total_datasource_start_end_times
+                if isinstance(total_range, (tuple, list)) and len(total_range) == 2:
+                    start, end = total_range
+                    return self._datasource.get_updated_data_window(start, end)
+        except Exception:
+            # Fall back to accessing a .df attribute if something goes wrong
+            pass
+
+        # Fallback: direct .df attribute if it exists
+        df = getattr(self._datasource, 'df', None)
+        if isinstance(df, pd.DataFrame):
+            return df
+        return None
         
     def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
         """Legacy method for subclasses."""

@@ -5,6 +5,7 @@ import pandas as pd
 from PyQt5.QtWidgets import QWidget
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.BaseTrackWidget import TrackWidget
 from phoofflineeeganalysis.analysis.UI.timeline.utils import parse_duration_to_seconds_vectorized
+from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import BaseDatasource, IntervalDataframeDatasource
 
 
 class XDFStreamTrack(TrackWidget):
@@ -19,13 +20,29 @@ class XDFStreamTrack(TrackWidget):
     - last_timestamp_dt: Alternative end time (optional)
     """
     
-    def __init__(self, stream_df: pd.DataFrame, name: str = "Stream", height: int = 60, parent: Optional[QWidget] = None):
+    def __init__(self, stream_source, name: str = "Stream", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
         # Set stream-specific colors (gray theme)
         self._pen_color = (150, 150, 150, 255)
         self._brush_color = (150, 150, 150, 150)
         
-        self.stream_df = stream_df.copy()
+        if isinstance(stream_source, BaseDatasource):
+            self.set_datasource(stream_source)
+            df = self._get_full_dataframe()
+            self.stream_df = df.copy() if isinstance(df, pd.DataFrame) else pd.DataFrame()
+        else:
+            stream_df = stream_source
+            self.stream_df = stream_df.copy()
+            # Choose an appropriate time column if available
+            time_col = None
+            if 'recording_datetime' in self.stream_df.columns:
+                time_col = 'recording_datetime'
+            elif 'first_timestamp_dt' in self.stream_df.columns:
+                time_col = 'first_timestamp_dt'
+            if time_col is not None:
+                interval_ds = IntervalDataframeDatasource(self.stream_df, time_column_name=time_col, datasource_name=name)
+                self.set_datasource(interval_ds)
+        
         self._display_df = pd.DataFrame()
         
         # Ensure datetime columns are datetime type and normalized
@@ -43,7 +60,11 @@ class XDFStreamTrack(TrackWidget):
         self.update_display()
     
     def _get_recording_intervals_vectorized(self) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
-        """Extract stream recording intervals from DataFrame using vectorized operations."""
+        """Extract stream recording intervals from DataFrame (prefer datasource-backed data)."""
+        if isinstance(self._get_full_dataframe(), pd.DataFrame):
+            df_full = self._get_full_dataframe()
+            if isinstance(df_full, pd.DataFrame):
+                self.stream_df = df_full.copy()
         if self.stream_df.empty:
             self._display_df = pd.DataFrame()
             return np.empty((0, 2)), []
