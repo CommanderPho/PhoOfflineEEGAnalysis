@@ -17,6 +17,34 @@ from phoofflineeeganalysis.analysis.UI.timeline.tracks.VideoMetadataTrack import
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.XDFStreamTrack import XDFStreamTrack
 
 
+def _normalize_datetime_to_utc_naive(series: pd.Series) -> pd.Series:
+    """
+    Normalize a datetime Series to naive UTC.
+    - If aware: convert to UTC, then make naive.
+    - If naive: assume Local Time, localize to system timezone, convert to UTC, then make naive.
+    """
+    if series.empty:
+        return series
+
+    # Convert to datetime first to ensure properties exist
+    series = pd.to_datetime(series, errors='coerce')
+    
+    # Check the first non-null value to determine if aware or naive
+    first_valid = series.dropna().first_valid_index()
+    if first_valid is None:
+        return series
+        
+    first_val = series[first_valid]
+    if first_val.tzinfo is None:
+        # Naive -> Assume Local -> UTC
+        # Get system local timezone
+        local_tz = datetime.now().astimezone().tzinfo
+        return series.dt.tz_localize(local_tz).dt.tz_convert('UTC').dt.tz_convert(None)
+    else:
+        # Aware -> UTC -> Naive
+        return series.dt.tz_convert('UTC').dt.tz_convert(None)
+
+
 class TimelineWidget(QWidget):
     """
     Main timeline widget that displays multiple synchronized tracks.
@@ -65,6 +93,10 @@ class TimelineWidget(QWidget):
         # Track overall time range
         self.overall_time_range: Optional[Tuple[datetime, datetime]] = None
         
+        self.setWindowTitle('Timeline')
+
+
+
     def add_track(self, track: TrackWidget):
         """Add a track to the timeline."""
         self.tracks.append(track)
@@ -106,6 +138,8 @@ class TimelineWidget(QWidget):
             if start_ts is not None and end_ts is not None and start_ts < end_ts:
                 for track_widget in self.tracks:
                     track_widget.plot_widget.setXRange(start_ts, end_ts, padding=0.05)
+                    # Explicitly update display to ensure intervals are rendered with the correct view range
+                    track_widget.update_display(time_range=(start_dt, end_dt))
     
     def remove_track(self, track: TrackWidget):
         """Remove a track from the timeline."""
@@ -262,10 +296,17 @@ class TimelineWidget(QWidget):
                 elif 'first_timestamp_dt' in stream_df.columns:
                     stream_df['recording_datetime'] = stream_df['first_timestamp_dt']
             
+            # Normalize datetime columns to UTC-naive to avoid timezone comparison issues
+            datetime_columns = ['recording_datetime', 'first_timestamp_dt', 'last_timestamp_dt', 
+                               'recording_start_datetime', 'stream_start_datetime']
+            for col in datetime_columns:
+                if col in stream_df.columns:
+                    stream_df[col] = _normalize_datetime_to_utc_naive(stream_df[col])
+            
             # Calculate duration_sec if not present but we have timestamp columns
             if 'duration_sec' not in stream_df.columns and 'duration_sec_check' not in stream_df.columns:
                 if 'first_timestamp_dt' in stream_df.columns and 'last_timestamp_dt' in stream_df.columns:
-                    # Calculate duration from timestamps
+                    # Calculate duration from timestamps (now both are UTC-naive)
                     durations = (stream_df['last_timestamp_dt'] - stream_df['first_timestamp_dt']).dt.total_seconds()
                     stream_df['duration_sec'] = durations
                 elif 'first_timestamp' in stream_df.columns and 'last_timestamp' in stream_df.columns:
@@ -276,6 +317,28 @@ class TimelineWidget(QWidget):
                     # Calculate duration from sample count and sampling rate
                     durations = stream_df['n_samples'].astype(float) / stream_df['fs'].astype(float)
                     stream_df['duration_sec'] = durations
+
+            # Check if StringDataTrack has required columns
+            if track_class == StringDataTrack:
+                # StringDataTrack requires 'onset' column (or the default onset_col)
+                # Check if we have any time-like column that could be used
+                has_onset = 'onset' in stream_df.columns
+                has_time_column = any(col in stream_df.columns for col in ['recording_datetime', 'stream_start_datetime', 'recording_start_datetime', 'first_timestamp_dt'])
+                
+                if not has_onset and not has_time_column:
+                    # Skip this stream - StringDataTrack requires a time column
+                    print(f"Warning: Skipping stream '{stream_name}' - StringDataTrack requires 'onset' column or time column. Available columns: {list(stream_df.columns)}")
+                    continue
+                elif not has_onset and has_time_column:
+                    # Map a time column to 'onset' for StringDataTrack
+                    if 'recording_datetime' in stream_df.columns:
+                        stream_df['onset'] = stream_df['recording_datetime']
+                    elif 'stream_start_datetime' in stream_df.columns:
+                        stream_df['onset'] = stream_df['stream_start_datetime']
+                    elif 'recording_start_datetime' in stream_df.columns:
+                        stream_df['onset'] = stream_df['recording_start_datetime']
+                    elif 'first_timestamp_dt' in stream_df.columns:
+                        stream_df['onset'] = stream_df['first_timestamp_dt']
 
             # if 'time' not in stream_df:
             #     stream_df = stream_df.rename(columns={'onset':'time', 'description':'text'}, inplace=False)

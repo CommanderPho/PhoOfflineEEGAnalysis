@@ -88,15 +88,25 @@ class MotionRecordingTrack(TrackWidget):
         # Calculate start times
         start_dt = df['recording_datetime']
         
-        # Initialize end_dt
-        end_dt = pd.Series(pd.NaT, index=df.index)
+        # Initialize end_dt - ensure end_dt has same dtype as start_dt to avoid timezone mismatch
+        end_dt = pd.Series(pd.NaT, index=df.index, dtype=start_dt.dtype)
         
         # Calculate end times from duration_sec
+        durations = pd.Series(np.nan, index=df.index, dtype=float)
         if 'duration_sec' in df.columns:
             durations = parse_duration_to_seconds_vectorized(df['duration_sec'])
-            valid_mask = durations.notna()
-            if valid_mask.any():
-                end_dt[valid_mask] = start_dt[valid_mask] + pd.to_timedelta(durations[valid_mask], unit='s')
+        
+        # If no durations found, use a default minimum duration (0.1 seconds) to ensure intervals are visible
+        if durations.isna().all():
+            durations = pd.Series(0.1, index=df.index, dtype=float)
+        else:
+            # Fill NaN durations with a default minimum duration
+            durations = durations.fillna(0.1)
+            # Ensure all durations are positive
+            durations[durations <= 0] = 0.1
+        
+        # Calculate end times - since we've ensured all durations are valid and positive, calculate for all rows
+        end_dt = start_dt + pd.to_timedelta(durations, unit='s')
         
         # Filter valid rows
         mask = start_dt.notna() & end_dt.notna() & (end_dt > start_dt)

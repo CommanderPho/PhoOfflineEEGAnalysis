@@ -56,6 +56,11 @@ class EEGRecordingTrack(TrackWidget):
             return np.empty((0, 2)), []
         
         df = self.eeg_df.copy()
+        
+        # Ensure datetime columns are datetime type and normalized to UTC-naive
+        if 'recording_datetime' in df.columns:
+            df['recording_datetime'] = self._ensure_utc_naive(df['recording_datetime'])
+        
         start_dt = df['recording_datetime']
         
         # Calculate durations
@@ -67,11 +72,18 @@ class EEGRecordingTrack(TrackWidget):
             durations2 = parse_duration_to_seconds_vectorized(df['duration_sec'])
             durations = durations.combine_first(durations2)
         
-        # Calculate ends
-        end_dt = pd.Series(pd.NaT, index=df.index)
-        valid_dur_mask = durations.notna()
-        if valid_dur_mask.any():
-            end_dt[valid_dur_mask] = start_dt[valid_dur_mask] + pd.to_timedelta(durations[valid_dur_mask], unit='s')
+        # If no durations found, use a default minimum duration (0.1 seconds) to ensure intervals are visible
+        if durations.isna().all():
+            durations = pd.Series(0.1, index=df.index, dtype=float)
+        else:
+            # Fill NaN durations with a default minimum duration
+            durations = durations.fillna(0.1)
+            # Ensure all durations are positive
+            durations[durations <= 0] = 0.1
+        
+        # Calculate ends - ensure end_dt has same dtype as start_dt to avoid timezone mismatch
+        # Since we've ensured all durations are valid and positive, we can calculate end_dt for all rows
+        end_dt = start_dt + pd.to_timedelta(durations, unit='s')
         
         # Filter valid rows
         mask = start_dt.notna() & end_dt.notna() & (end_dt > start_dt)
