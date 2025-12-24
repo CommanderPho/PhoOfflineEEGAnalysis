@@ -119,5 +119,13 @@ class StringDataTrack(TrackWidget):
             metadata["label"] = str(row["label"])
 
         return metadata
+    
+    def _clear_detailed_items(self) -> None:
+        """No detailed items for StringData track (overview only)."""
+        pass
+    
+    def _ensure_detailed_items(self) -> None:
+        """No detailed items for StringData track (overview only)."""
+        pass
 
 

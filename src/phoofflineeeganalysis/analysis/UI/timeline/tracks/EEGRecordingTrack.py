@@ -120,4 +120,12 @@ class EEGRecordingTrack(TrackWidget):
         
     def _cache_metadata(self):
         pass
+    
+    def _clear_detailed_items(self) -> None:
+        """No detailed items for EEG track (overview only)."""
+        pass
+    
+    def _ensure_detailed_items(self) -> None:
+        """No detailed items for EEG track (overview only)."""
+        pass
 

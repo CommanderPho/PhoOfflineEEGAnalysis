@@ -133,6 +133,14 @@ class VideoMetadataTrack(TrackWidget):
     def _get_recording_intervals(self) -> List[Tuple[datetime, datetime]]:
         return [] # Obsolete, but kept to satisfy abstract method if needed (shim handles it)
     
+    def _clear_detailed_items(self) -> None:
+        """No detailed items for Video track (overview only)."""
+        pass
+    
+    def _ensure_detailed_items(self) -> None:
+        """No detailed items for Video track (overview only)."""
+        pass
+    
     def _on_mouse_clicked(self, event):
         """Override to handle double-clicks for video launching."""
         # Check for left button click (Qt.LeftButton = 1)

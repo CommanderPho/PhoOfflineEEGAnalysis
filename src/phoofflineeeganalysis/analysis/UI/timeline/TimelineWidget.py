@@ -252,6 +252,30 @@ class TimelineWidget(QWidget):
                 ## in general, the stream_name should be 
                 track_name = f"{stream_name}<{track_name}>"
 
+            # Normalize column names to match track class expectations
+            # Map recording_start_datetime or stream_start_datetime to recording_datetime if needed
+            if 'recording_datetime' not in stream_df.columns:
+                if 'recording_start_datetime' in stream_df.columns:
+                    stream_df['recording_datetime'] = stream_df['recording_start_datetime']
+                elif 'stream_start_datetime' in stream_df.columns:
+                    stream_df['recording_datetime'] = stream_df['stream_start_datetime']
+                elif 'first_timestamp_dt' in stream_df.columns:
+                    stream_df['recording_datetime'] = stream_df['first_timestamp_dt']
+            
+            # Calculate duration_sec if not present but we have timestamp columns
+            if 'duration_sec' not in stream_df.columns and 'duration_sec_check' not in stream_df.columns:
+                if 'first_timestamp_dt' in stream_df.columns and 'last_timestamp_dt' in stream_df.columns:
+                    # Calculate duration from timestamps
+                    durations = (stream_df['last_timestamp_dt'] - stream_df['first_timestamp_dt']).dt.total_seconds()
+                    stream_df['duration_sec'] = durations
+                elif 'first_timestamp' in stream_df.columns and 'last_timestamp' in stream_df.columns:
+                    # Calculate duration from numeric timestamps
+                    durations = stream_df['last_timestamp'] - stream_df['first_timestamp']
+                    stream_df['duration_sec'] = durations
+                elif 'n_samples' in stream_df.columns and 'fs' in stream_df.columns:
+                    # Calculate duration from sample count and sampling rate
+                    durations = stream_df['n_samples'].astype(float) / stream_df['fs'].astype(float)
+                    stream_df['duration_sec'] = durations
 
             # if 'time' not in stream_df:
             #     stream_df = stream_df.rename(columns={'onset':'time', 'description':'text'}, inplace=False)

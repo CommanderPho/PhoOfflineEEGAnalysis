@@ -397,21 +397,42 @@ class PhoLogTrack(StringDataTrack):
             self.plot_widget.addItem(text_item)
             self._text_items.append(text_item)
     
+    def _clear_detailed_items(self) -> None:
+        """Clear text items and point markers (used when in overview mode or no data)."""
+        # Clear existing text items
+        for item in self._text_items:
+            self.plot_widget.removeItem(item)
+        self._text_items.clear()
+        
+        # Remove existing point markers
+        if self._point_markers is not None:
+            self.plot_widget.removeItem(self._point_markers)
+            self._point_markers = None
+    
+    def _ensure_detailed_items(self) -> None:
+        """Ensure text rendering infrastructure is ready (already set up in __init__)."""
+        # Infrastructure is already initialized in __init__, nothing to do here
+        pass
+    
     def _render_overview(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
         """
-        Render overview mode with bars and text labels.
+        Render overview mode: ONLY interval rectangles, no text labels.
         """
-        # First render bars using base class overview rendering
-        super()._render_overview(time_range)
+        # Clear any detailed items (text labels and point markers)
+        self._clear_detailed_items()
         
-        # Always render text labels and point markers
-        self._render_text_labels_and_points(time_range)
+        # Render only interval rectangles using base class
+        super()._render_overview(time_range)
     
     def _render_detailed(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
         """
-        Render detailed view with text labels and point markers.
+        Render detailed view: interval rectangles + text labels and point markers.
         """
-        # Use overview rendering which now includes text labels
-        self._render_overview(time_range)
+        # First render interval rectangles (core visualization)
+        super()._render_detailed(time_range)  # This renders rectangles and clears detailed items
+        
+        # Then add text labels and point markers as overlay
+        self._ensure_detailed_items()
+        self._render_text_labels_and_points(time_range)
 
 

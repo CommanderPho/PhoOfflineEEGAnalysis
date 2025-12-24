@@ -47,4 +47,12 @@ class WhisperTrack(StringDataTrack):
             base_metadata["language"] = row["language"]
 
         return base_metadata
+    
+    def _clear_detailed_items(self) -> None:
+        """No detailed items for Whisper track (overview only)."""
+        pass
+    
+    def _ensure_detailed_items(self) -> None:
+        """No detailed items for Whisper track (overview only)."""
+        pass
 

@@ -159,10 +159,12 @@ class MotionRecordingTrack(TrackWidget):
 
     def _render_detailed(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
         """
-        Render detailed motion data as line plots for each position column.
+        Render detailed motion data: interval rectangles + line plots overlay.
+        
+        Both interval rectangles and line plots should be visible simultaneously.
         """
-        # Hide overview bar graph
-        self.bar_graph_item.setVisible(False)
+        # First render interval rectangles (core visualization)
+        super()._render_detailed(time_range)  # This renders rectangles and clears detailed items
         
         # Ensure detailed items exist
         self._ensure_detailed_items()

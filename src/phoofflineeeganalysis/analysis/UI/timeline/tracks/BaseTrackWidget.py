@@ -360,8 +360,13 @@ class TrackWidget(DetailedRenderingTrackMixin, QWidget):
         else:
             self._render_overview(effective_range)
 
-    def _render_overview(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
-        """Default overview rendering: bar-graph intervals."""
+    def _render_interval_rectangles(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
+        """
+        Core method to render interval rectangles (bars) for epochs/intervals.
+        
+        This is the fundamental visualization that shows when each epoch/interval exists.
+        Can be called by both overview and detailed modes to ensure rectangles are always visible.
+        """
         visible_intervals = self._all_intervals_ts
 
         if time_range is not None:
@@ -414,6 +419,22 @@ class TrackWidget(DetailedRenderingTrackMixin, QWidget):
             
         self.plot_widget.setYRange(0, 1, padding=0.0)
 
+    def _render_overview(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
+        """
+        Render overview mode: ONLY interval rectangles, no detailed overlays.
+        
+        This method should render only the core interval rectangles using bar_graph_item.
+        Subclasses should NOT add detailed overlays here - use _render_detailed() for that.
+        """
+        # Clear any detailed items that might be visible
+        try:
+            self._clear_detailed_items()
+        except NotImplementedError:
+            # Track doesn't support detailed mode, which is fine
+            pass
+        
+        # Render interval rectangles
+        self._render_interval_rectangles(time_range)
 
     # ==================================================================================================================================================================================================================================================================================== #
     # DetailedRenderingTrackMixin Implementation                                                                                                                                                                                                                                           #
@@ -430,12 +451,27 @@ class TrackWidget(DetailedRenderingTrackMixin, QWidget):
 
     def _render_detailed(self, time_range: Optional[Tuple[datetime, datetime]]) -> None:
         """
-        Default detailed rendering falls back to overview.
-
-        Subclasses can override this to draw data-rich views while reusing
-        the same time_range semantics.
+        Render detailed mode: interval rectangles + detailed overlay.
+        
+        Default implementation renders interval rectangles first, then clears detailed items.
+        Subclasses should override to:
+        1. First call super()._render_detailed(time_range) or _render_interval_rectangles(time_range)
+           to ensure interval rectangles are visible
+        2. Then call _ensure_detailed_items() to prepare detailed rendering infrastructure
+        3. Then render their detailed overlays (line plots, text labels, etc.)
+        
+        Both interval rectangles and detailed overlays should be visible simultaneously.
         """
-        self._render_overview(time_range)
+        # First render interval rectangles (core visualization)
+        self._render_interval_rectangles(time_range)
+        
+        # Clear detailed items to ensure clean state
+        # Subclasses will add their detailed overlays after this
+        try:
+            self._clear_detailed_items()
+        except NotImplementedError:
+            # Track doesn't support detailed mode, which is fine
+            pass
 
 
 
