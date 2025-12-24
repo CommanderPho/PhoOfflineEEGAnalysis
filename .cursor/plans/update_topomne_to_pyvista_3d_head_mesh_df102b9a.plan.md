@@ -130,4 +130,3 @@ In `update_visualization()`:
 ## Testing Considerations
 
 - Test with default paths
-- Test with custom mesh and montage paths

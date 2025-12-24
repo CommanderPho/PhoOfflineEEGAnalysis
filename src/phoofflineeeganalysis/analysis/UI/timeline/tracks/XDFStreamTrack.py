@@ -27,7 +27,27 @@ class XDFStreamTrack(TrackWidget):
         self._pen_color = (150, 150, 150, 255)
         self._brush_color = (150, 150, 150, 150)
 
-        if not isinstance(stream_source, BaseDatasource):
+        # Check if stream_source is a BaseDatasource (handle QObject MRO issues)
+        is_valid = False
+        try:
+            if isinstance(stream_source, (BaseDatasource, IntervalDataframeDatasource)):
+                is_valid = True
+        except (TypeError, AttributeError):
+            # If isinstance fails (e.g., due to QObject MRO issues), check MRO directly
+            pass
+        
+        if not is_valid:
+            # Fallback: check by MRO for QObject inheritance issues
+            source_type = type(stream_source)
+            if hasattr(source_type, '__mro__'):
+                mro = source_type.__mro__
+                if BaseDatasource in mro or IntervalDataframeDatasource in mro:
+                    is_valid = True
+            # Also check if it has the required interface (duck typing)
+            if hasattr(stream_source, 'df') and (hasattr(stream_source, 'get_updated_data_window') or hasattr(stream_source, 'total_datasource_start_end_times')):
+                is_valid = True
+        
+        if not is_valid:
             raise TypeError(f"XDFStreamTrack expects a BaseDatasource (e.g. XDFDatasource), got {type(stream_source)}")
 
         # Attach datasource (will trigger initial interval caching and display update)

@@ -4038,7 +4038,7 @@ wheels = [
 
 [[package]]
 name = "phoofflineeeganalysis"
-version = "0.2.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "autoreject" },
@@ -4206,7 +4206,7 @@ requires-dist = [
 
 [[package]]
 name = "phopymnehelper"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "../ACTIVE_DEV/PhoPyMNEHelper" }
 dependencies = [
     { name = "gmsh" },

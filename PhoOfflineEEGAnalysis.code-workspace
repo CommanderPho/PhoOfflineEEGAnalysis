@@ -4,22 +4,16 @@
 			"path": "."
 		},
 		{
-			"path": "../LSL_REPOS/LSL/PhoPyLSLhelper"
+			"path": "H:/TEMP/Spike3DEnv_ExploreUpgrade/Spike3DWorkEnv/pyPhoTimeline"
 		},
 		{
-			"path": "../mne-python"
+			"path": "../ACTIVE_DEV/vispy_timeline"
 		},
 		{
-			"path": "../mnelab"
+			"path": "../ACTIVE_DEV/stream_viewer"
 		},
 		{
-			"path": "../LSL_REPOS/App-SigVisualizer"
-		},
-		{
-			"path": "../PhoLabStreamingReceiver"
-		},
-		{
-			"path": "../../../Desktop/LSL Tools/Pho LSL Repos/LSL_REPOS/App-XDFStreamer"
+			"path": "../ACTIVE_DEV/PhoPyMNEHelper"
 		}
 	],
 	"settings": {
@@ -45,6 +39,7 @@
 			"statusBar.foreground": "#ffffff",
 			"sideBarSectionHeader.border": "#cecece"
 		},
+		"git.ignoreLimitWarning": true,
 		"python.languageServer": "None"
 	}
 }

@@ -19,6 +19,9 @@ class DetailedRenderingTrackMixin:
     def set_detailed_threshold(self, seconds: Optional[float]) -> None:
         """Set the time-span threshold (in seconds) for switching to detailed rendering."""
         self.detailed_mode_timespan_threshold_sec = seconds
+        # Update display to reflect the new threshold (may switch between overview/detailed)
+        if hasattr(self, 'update_display'):
+            self.update_display()
 
     def _ensure_detailed_items(self) -> None:
         """Create PlotDataItem per channel for detailed mode if not already present."""
@@ -313,6 +316,7 @@ class TrackWidget(DetailedRenderingTrackMixin, QWidget):
         
         if self._all_intervals_ts is None or len(self._all_intervals_ts) == 0:
             self.bar_graph_item.setOpts(x=[], height=[], width=[])
+            self._is_detailed_mode = False
             return
 
         # Determine effective visible range
@@ -336,6 +340,18 @@ class TrackWidget(DetailedRenderingTrackMixin, QWidget):
             span_sec = (end_dt - start_dt).total_seconds()
             if span_sec <= self.detailed_mode_timespan_threshold_sec:
                 use_detailed = True
+        elif effective_range is None and self.detailed_mode_timespan_threshold_sec is not None:
+            # If we have a threshold but no effective_range, try to use the full interval range
+            if self._all_intervals_ts is not None and len(self._all_intervals_ts) > 0:
+                start_ts = np.min(self._all_intervals_ts[:, 0])
+                end_ts = np.max(self._all_intervals_ts[:, 1])
+                start_dt = self._safe_timestamp_to_datetime(start_ts)
+                end_dt = self._safe_timestamp_to_datetime(end_ts)
+                if start_dt is not None and end_dt is not None:
+                    span_sec = (end_dt - start_dt).total_seconds()
+                    if span_sec <= self.detailed_mode_timespan_threshold_sec:
+                        use_detailed = True
+                        effective_range = (start_dt, end_dt)
 
         self._is_detailed_mode = use_detailed
 
@@ -405,6 +421,8 @@ class TrackWidget(DetailedRenderingTrackMixin, QWidget):
     def set_detailed_threshold(self, seconds: Optional[float]) -> None:
         """Set the time-span threshold (in seconds) for switching to detailed rendering."""
         self.detailed_mode_timespan_threshold_sec = seconds
+        # Update display to reflect the new threshold (may switch between overview/detailed)
+        self.update_display()
 
     def _clear_detailed_items(self) -> None:
         """Hide all detailed curves (used when no data or in overview mode)."""
