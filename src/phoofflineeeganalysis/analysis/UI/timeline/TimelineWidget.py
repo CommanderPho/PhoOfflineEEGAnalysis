@@ -94,8 +94,15 @@ class TimelineWidget(QWidget):
         self.overall_time_range: Optional[Tuple[datetime, datetime]] = None
         
         self.setWindowTitle('Timeline')
+        
+        # Set default size to be at least 8x bigger (3200x2400)
+        self.resize(1980, 800)
 
-
+    def show(self):
+        """Show the timeline widget and bring it to the foreground."""
+        super().show()
+        self.raise_()
+        self.activateWindow()
 
     def add_track(self, track: TrackWidget):
         """Add a track to the timeline."""
@@ -345,7 +352,13 @@ class TimelineWidget(QWidget):
 
             # Create track
             try:
-                track = track_class(stream_df, name=track_name)
+                # For XDFStreamTrack, wrap DataFrame in IntervalDataframeDatasource
+                if track_class == XDFStreamTrack:
+                    from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import IntervalDataframeDatasource
+                    interval_ds = IntervalDataframeDatasource(stream_df, time_column_name='recording_datetime', datasource_name=track_name)
+                    track = track_class(interval_ds, name=track_name)
+                else:
+                    track = track_class(stream_df, name=track_name)
                 self.add_track(track)
 
             # except ValueError as e:

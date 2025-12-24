@@ -1,11 +1,12 @@
 from datetime import datetime
-from typing import Optional, List, Tuple, Dict, Any
+from typing import Optional, List, Tuple, Dict, Any, Union
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from PyQt5.QtWidgets import QWidget
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.BaseTrackWidget import TrackWidget
 from phoofflineeeganalysis.analysis.UI.timeline.utils import parse_duration_to_seconds_vectorized
-from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import BaseDatasource, IntervalDataframeDatasource
+from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import BaseDatasource, IntervalDataframeDatasource, XDFDatasource
 
 
 class XDFStreamTrack(TrackWidget):
@@ -21,11 +22,16 @@ class XDFStreamTrack(TrackWidget):
     - last_timestamp_dt: Alternative end time (optional)
     """
     
-    def __init__(self, stream_source: BaseDatasource, name: str = "Stream", height: int = 60, parent: Optional[QWidget] = None):
+    def __init__(self, stream_source: Union[BaseDatasource, Path], name: str = "Stream", height: int = 60, parent: Optional[QWidget] = None):
         super().__init__(name=name, height=height, parent=parent)
         # Set stream-specific colors (gray theme)
         self._pen_color = (150, 150, 150, 255)
         self._brush_color = (150, 150, 150, 150)
+
+        # Handle Path input by creating XDFDatasource
+        if isinstance(stream_source, (Path, str)):
+            xdf_file_path = Path(stream_source) if isinstance(stream_source, str) else stream_source
+            stream_source = XDFDatasource(a_xdf_file=xdf_file_path, datasource_name=name)
 
         # Check if stream_source is a BaseDatasource (handle QObject MRO issues)
         is_valid = False
@@ -48,10 +54,16 @@ class XDFStreamTrack(TrackWidget):
                 is_valid = True
         
         if not is_valid:
-            raise TypeError(f"XDFStreamTrack expects a BaseDatasource (e.g. XDFDatasource), got {type(stream_source)}")
+            raise TypeError(f"XDFStreamTrack expects a BaseDatasource (e.g. XDFDatasource) or Path to XDF file, got {type(stream_source)}")
 
         # Attach datasource (will trigger initial interval caching and display update)
         self.set_datasource(stream_source)
+
+        # Cache intervals immediately
+        self._cache_intervals()
+
+        # Initial display update (show all)
+        self.update_display()
 
         # Cached display DataFrame used for metadata lookups
         self._display_df = pd.DataFrame()

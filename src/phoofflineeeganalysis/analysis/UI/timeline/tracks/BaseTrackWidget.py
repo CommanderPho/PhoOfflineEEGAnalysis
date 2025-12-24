@@ -5,10 +5,48 @@ import numpy as np
 import pandas as pd
 from PyQt5.QtWidgets import QWidget, QLabel, QMessageBox, QHBoxLayout
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QTransform, QPainter
 import pyqtgraph as pg
 from pyqtgraph import PlotWidget, DateAxisItem
 from phoofflineeeganalysis.analysis.UI.timeline.datasource.datasources import BaseDatasource
+
+
+class RotatedLabel(QLabel):
+    """QLabel that displays text rotated -90 degrees (vertical, reading top to bottom)."""
+    
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        
+        # Get the label's text and font
+        text = self.text()
+        if not text:
+            painter.end()
+            return
+            
+        font = self.font()
+        painter.setFont(font)
+        
+        # Get text metrics
+        metrics = painter.fontMetrics()
+        text_width = metrics.width(text)
+        text_height = metrics.height()
+        
+        # Calculate center position
+        widget_width = self.width()
+        widget_height = self.height()
+        
+        # Rotate -90 degrees (counterclockwise)
+        # After rotation, the text width becomes the vertical extent
+        transform = QTransform()
+        transform.translate(widget_width / 2, widget_height / 2)
+        transform.rotate(-90)
+        # Center the rotated text
+        transform.translate(-text_width / 2, text_height / 2)
+        
+        painter.setTransform(transform)
+        painter.drawText(0, 0, text)
+        painter.end()
 
 
 class DetailedRenderingTrackMixin:
@@ -59,7 +97,7 @@ class TrackWidget(DetailedRenderingTrackMixin, QWidget):
         
         # Create PlotWidget with DateAxisItem for proper datetime x-axis
         self.plot_widget = PlotWidget(parent=self, axisItems={'bottom': DateAxisItem(orientation='bottom')})
-        self.plot_widget.setFixedHeight(height)
+        self.plot_widget.setMinimumHeight(height)
         self.plot_widget.setLabel('left', name)
         self.plot_widget.hideAxis('left')
         self.plot_widget.setLabel('bottom', 'Time')
@@ -100,10 +138,10 @@ class TrackWidget(DetailedRenderingTrackMixin, QWidget):
         self._is_detailed_mode: bool = False
         self._last_visible_range: Optional[Tuple[float, float]] = None
         
-        # Create label for track name (left edge)
-        self.name_label = QLabel(name, self)
+        # Create label for track name (left edge) with rotated text
+        self.name_label = RotatedLabel(name, self)
         self.name_label.setAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        self.name_label.setFixedWidth(80)
+        self.name_label.setFixedWidth(35)
         font = QFont()
         font.setPointSize(9)
         self.name_label.setFont(font)
