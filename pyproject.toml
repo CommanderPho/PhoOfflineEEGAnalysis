@@ -1,12 +1,12 @@
 [project]
 name = "phoofflineeeganalysis"
-version = "0.2.1"
+version = "0.2.2"
 description = "Add your description here"
 readme = "README.md"
 authors = [
     { name = "Pho Hale", email = "PhoHale@gmail.com" }
 ]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.11"
 dependencies = [
     "ipykernel>=6.30.1",
     "scipy>=1.13.1",
@@ -48,7 +48,7 @@ dependencies = [
     "tables>=3.9.2",
     "holoviews[recommended]>=1.20.2",
     "hvplot>=0.11.3",
-    "jupyter-bokeh>=4.0.5",
+    "jupyter-bokeh>=3.0.7,<4",
     "plotly>=6.3.0",
     "zarr>=2.18.2",
     "coiled>=1.122.0",
@@ -86,6 +86,10 @@ phoofflineeeganalysis = "phoofflineeeganalysis:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.uv]
+# Limit environments to current platform only (exclude darwin/macOS)
+environments = []
 
 [tool.uv.sources]
 mne = { path = "../mne-python", editable = true }
