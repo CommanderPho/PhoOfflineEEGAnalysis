@@ -159,8 +159,3 @@ def _get_recording_intervals_vectorized(self):
 2. **Lazy Loading**: Datasources can implement lazy loading for large datasets
 3. **Windowed Access**: Use `get_updated_data_window()` for efficient time-range queries
 4. **Unified Interface**: Consistent data access pattern across all tracks
-5. **Future Extensibility**: Easy to add new datasource types without changing tracks
-
-## Testing Considerations
-
-- Verify existing code using DataFrame constructors still works

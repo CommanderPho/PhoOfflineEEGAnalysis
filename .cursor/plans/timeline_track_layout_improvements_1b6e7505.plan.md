@@ -50,9 +50,3 @@ Modify the `BaseTrackWidget` class to improve the layout of timeline tracks:
 ## Implementation Details
 
 1. **Plot Height**: Change from `setFixedHeight(height)` to `setMinimumHeight(height)` to allow vertical expansion while maintaining a minimum size.
-2. **Label Rotation**: Use QLabel's `setStyleSheet` with a transform, or better yet, use a custom paintEvent or QGraphicsProxyWidget approach. The simplest approach is to use a QLabel subclass that paints rotated text, or use QTransform in a custom paintEvent.
-3. **Label Width**: Reduce from 80 to approximately 30-35 pixels, which should be sufficient for rotated text while keeping the left bar compact.
-
-## Testing Considerations
-
-- Verify that rotated text is readable

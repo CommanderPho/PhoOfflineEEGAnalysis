@@ -180,10 +180,3 @@ The existing logic in `update_display()` is correct:
 1. Verify interval rectangles appear in overview mode
 2. Verify interval rectangles + overlays appear in detailed mode
 3. Verify smooth transitions when zooming in/out
-4. Verify all tracks behave consistently
-5. Verify performance (no unnecessary re-rendering)
-
-## Files to Modify
-
-1. `src/phoofflineeeganalysis/analysis/UI/timeline/tracks/BaseTrackWidget.py`
-2. `src/phoofflineeeganalysis/analysis/UI/timeline/tracks/MotionRecordingTrack.py`

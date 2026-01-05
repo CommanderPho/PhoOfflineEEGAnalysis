@@ -64,10 +64,6 @@ self._cache_intervals()
 
 # Initial display update (show all)
 self.update_display()
+
+
 ```
-
-
-
-## Testing Considerations
-
-- Verify that tracks created from DataFrames in `add_tracks_from_xdf_streams()` now display intervals correctly
