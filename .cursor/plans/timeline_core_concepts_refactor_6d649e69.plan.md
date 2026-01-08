@@ -174,9 +174,3 @@ The existing logic in `update_display()` is correct:
 - Compares visible time span to `detailed_mode_timespan_threshold_sec`
 - Sets `_is_detailed_mode` flag
 - Calls appropriate render method
-
-## Testing Considerations
-
-1. Verify interval rectangles appear in overview mode
-2. Verify interval rectangles + overlays appear in detailed mode
-3. Verify smooth transitions when zooming in/out

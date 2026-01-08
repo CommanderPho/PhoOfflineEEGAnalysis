@@ -83,10 +83,10 @@ Enhance `PhoLogTrack` to support multiple data formats and add intelligent text 
 - Returns list of (x, y, text, width) tuples for rendering
 - Overlap detection algorithm:
   ```python
-            # Sort intervals by start time
-            # For each interval, check if it overlaps with any existing row
-            # If overlaps, assign to next available row
-            # Distribute rows evenly across available height
+                # Sort intervals by start time
+                # For each interval, check if it overlaps with any existing row
+                # If overlaps, assign to next available row
+                # Distribute rows evenly across available height
   ```
 
 
@@ -182,7 +182,3 @@ else:
 - Test with very long text strings (elliding)
 - Test performance with large datasets (1000+ intervals)
 - Test zoom in/out behavior (overview vs detailed mode switching)
-
-## Files to Modify
-
-1. [`src/phoofflineeeganalysis/analysis/UI/timeline/tracks/PhoLogTrack.py`](src/phoofflineeeganalysis/analysis/UI/timeline/tracks/PhoLogTrack.py) - Main implementation
