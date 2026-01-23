@@ -12,7 +12,7 @@ dependencies = [
     "scipy>=1.13.1",
     "setuptools>=80.4.0",
     "wheel>=0.45.1",
-    "numpy~=1.20",
+    "numpy>=1.20,<1.24",
     "qtpy>=2.4.3",
     "pyqt5==5.15.11",
     "pyqt5-qt5==5.15.2",
@@ -78,6 +78,7 @@ dependencies = [
     "gmsh>=4.15.0",
     "opencv-python>=4.8.0",
     "phopymnehelper",
+    "py-pho-timeline",
 ]
 
 [project.scripts]
@@ -88,10 +89,11 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv]
-# Limit environments to current platform only (exclude darwin/macOS)
-environments = []
-
 [tool.uv.sources]
-mne = { path = "../mne-python", editable = true }
+# WARNING: Dev mne requires numpy>=1.26, which conflicts with pyphocorehelpers (numpy<1.24)
+# This will cause resolution failures on darwin, but may work on Windows
+# If you need to lock on Windows only, you may need to temporarily remove this source
+# mne = { path = "../mne-python", editable = true }
 phopylslhelper = { path = "../ACTIVE_DEV/PhoPyLSLhelper", editable = true }
 phopymnehelper = { path = "../ACTIVE_DEV/PhoPyMNEHelper", editable = true }
+py-pho-timeline = { path = "../ACTIVE_DEV/pyPhoTimeline", editable = true }

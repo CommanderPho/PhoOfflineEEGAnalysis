@@ -39,7 +39,6 @@ from phoofflineeeganalysis.helpers.indexing_helpers import reorder_columns_relat
 
 
 
-
 class HistoricalData:
     """ Methods related to retrospective processing of recorded data
         
@@ -762,19 +761,32 @@ class HistoricalData:
             
             
         """
+        from phoofflineeeganalysis.analysis.xdf_files import LabRecorderXDF
+        
         metadata_key_dict = {'ctime':'st_ctime', 'size':'st_size', 'mtime':'st_mtime'}
         datetime_col_names = ['start_t', 'ctime', 'mtime']
         _out_df = []
         for a_file in recording_files:
             if a_file.exists():
                 try:
-                    raw = read_raw(a_file, preload=False)
-                    meas_datetime = HistoricalData.get_or_parse_datetime_from_raw(raw, allow_setting_meas_date_from_filename=True)
-                    start_time = meas_datetime.timestamp() if hasattr(meas_datetime, 'timestamp') else meas_datetime[0]
+                    # Handle .xdf files separately since read_raw() doesn't support them
+                    if a_file.suffix.lower() == '.xdf':
+                        lab_recorder_xdf = LabRecorderXDF.init_basic_from_lab_recorder_xdf_file(a_xdf_file=a_file, debug_print=False)
+                        meas_datetime = lab_recorder_xdf.file_datetime
+                        # Fallback to filename parsing if file_datetime is None
+                        if meas_datetime is None:
+                            meas_datetime = cls.extract_datetime_from_filename(a_file.name)
+                            meas_datetime = meas_datetime.replace(tzinfo=timezone.utc) if meas_datetime.tzinfo is None else meas_datetime.astimezone(timezone.utc)
+                        start_time = meas_datetime.timestamp() if hasattr(meas_datetime, 'timestamp') else meas_datetime[0]
+                    else:
+                        raw = read_raw(a_file, preload=False)
+                        meas_datetime = HistoricalData.get_or_parse_datetime_from_raw(raw, allow_setting_meas_date_from_filename=True)
+                        start_time = meas_datetime.timestamp() if hasattr(meas_datetime, 'timestamp') else meas_datetime[0]
+                    
                     a_file_metadata = a_file.stat()
                     a_file_metadata_dict = {col_name:getattr(a_file_metadata, file_metadata_key) for col_name, file_metadata_key in metadata_key_dict.items()}
                     _out_df.append({'src_file_name': a_file.stem, 'start_t': start_time, 'src_file': a_file.as_posix(), 'meas_datetime':meas_datetime, **a_file_metadata_dict})
-                except (ValueError, AttributeError, TypeError) as e:
+                except (ValueError, AttributeError, TypeError, KeyError) as e:
                     print(f'failed to load file: "{a_file}" with error: {e}. Skipping.')
                     pass
 

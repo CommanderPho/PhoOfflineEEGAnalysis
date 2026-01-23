@@ -1,0 +1,12 @@
+*
+!src/phoofflineeeganalysis/analysis/UI/timeline/tracks/XDFStreamTrack.py
+**/.veenv
+**/.kiro
+**/.mypy_cache
+**/.mypy_cache
+**/.specstory
+**/examples_datashader
+**/examples_jupyter
+**/holoviews-examples
+**/openspec
+**/output

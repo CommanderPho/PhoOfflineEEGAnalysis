@@ -168,7 +168,7 @@ class IntervalDataframeDatasource(DataframeDatasource):
         return self._custom_time_column_name
     
 
-from phoofflineeeganalysis.analysis.SavedSessionsProcessor import LabRecorderXDF
+from phoofflineeeganalysis.analysis.xdf_files import LabRecorderXDF
 
 class XDFDatasource(BaseDatasource):
     """ Provides the list of values, 'v' and the timestamps at which they occur 't'.
