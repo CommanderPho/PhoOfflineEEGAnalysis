@@ -16,3 +16,5 @@ examples_jupyter/spectrogram_export.html
 **/__pycache__
 desktop.ini
 output/*.csv
+examples_jupyter/EXTERNAL/LOGGING/timeline_rendering.log
+2026-01-23_SpecStoryExport.md

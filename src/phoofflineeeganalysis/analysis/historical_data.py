@@ -67,15 +67,21 @@ class HistoricalData:
     
 
     @classmethod
-    def get_recording_files(cls, recordings_dir: Path, recordings_extensions = ['.fif']):
+    def get_recording_files(cls, recordings_dir: Union[Path, List[Path]], recordings_extensions = ['.fif']):
         found_recording_files = []
         for ext in recordings_extensions:
-            found_recording_files.extend(recordings_dir.glob(f"*{ext}"))
+            if isinstance(recordings_dir, (List, Tuple)):
+                ## iterate through to get the files
+                for a_recordings_dir in recordings_dir:
+                    found_recording_files.extend(a_recordings_dir.glob(f"*{ext}"))
+            else:
+                ## single file
+                found_recording_files.extend(recordings_dir.glob(f"*{ext}"))
             # found_recording_files.extend(recordings_dir.glob(f"*{ext.upper()}"))
         try:
             found_recording_files.sort(key=lambda f: (-(f.stat().st_mtime), f.name.lower()[::-1]))
         except Exception as e:
-            raise e
+            raise
         
         return found_recording_files
 
