@@ -19,3 +19,4 @@ output/*.csv
 examples_jupyter/EXTERNAL/LOGGING/timeline_rendering.log
 2026-01-23_SpecStoryExport.md
 templating/uv_deps_switcher
+.cursor/debug.log
