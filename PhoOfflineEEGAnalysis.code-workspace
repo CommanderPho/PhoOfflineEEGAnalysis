@@ -4,7 +4,7 @@
 			"path": "."
 		},
 		{
-			"path": "H:/TEMP/Spike3DEnv_ExploreUpgrade/Spike3DWorkEnv/pyPhoTimeline"
+			"path": "../ACTIVE_DEV/pyPhoTimeline"
 		},
 		{
 			"path": "../ACTIVE_DEV/stream_viewer"

@@ -1,0 +1,4 @@
+[tool.uv.sources]
+phopylslhelper = { path = "../ACTIVE_DEV/PhoPyLSLhelper", editable = true }
+phopymnehelper = { path = "../ACTIVE_DEV/PhoPyMNEHelper", editable = true }
+py-pho-timeline = { path = "../ACTIVE_DEV/pyPhoTimeline", editable = true }
