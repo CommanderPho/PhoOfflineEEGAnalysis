@@ -1117,6 +1117,15 @@ class LabRecorderXDF:
 
         # _out_xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=_out_eeg_raw) # [_out_xdf_stream_infos_df['name'] == 'Epoc X']
 
+        try:
+            print(f'trying to finalize _out_xdf_stream_infos_df columns...')
+            _out_xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=_out_eeg_raw) # [_out_xdf_stream_infos_df['name'] == 'Epoc X']
+
+        except Exception as e:
+            print(f'\t finalization failed: {e}\n\tYou can call it post-hoc like:\n\t\t`_out_xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=_out_eeg_raw)`\n\treturning the non-processed _out_xdf_stream_infos_df.')
+            # raise
+            pass
+
         return _out_eeg_raw, _out_xdf_stream_infos_df, lab_recorder_xdf_files
 
 
