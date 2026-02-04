@@ -40,6 +40,7 @@
 			"sideBarSectionHeader.border": "#cecece"
 		},
 		"git.ignoreLimitWarning": true,
-		"python.languageServer": "None"
+		"python.languageServer": "None",
+		"problems.visibility": false
 	}
 }
