@@ -15,34 +15,7 @@ from phoofflineeeganalysis.analysis.UI.timeline.tracks.StringDataTrack import St
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.PhoLogTrack import PhoLogTrack
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.VideoMetadataTrack import VideoMetadataTrack
 from phoofflineeeganalysis.analysis.UI.timeline.tracks.XDFStreamTrack import XDFStreamTrack
-
-
-def _normalize_datetime_to_utc_naive(series: pd.Series) -> pd.Series:
-    """
-    Normalize a datetime Series to naive UTC.
-    - If aware: convert to UTC, then make naive.
-    - If naive: assume Local Time, localize to system timezone, convert to UTC, then make naive.
-    """
-    if series.empty:
-        return series
-
-    # Convert to datetime first to ensure properties exist
-    series = pd.to_datetime(series, errors='coerce')
-    
-    # Check the first non-null value to determine if aware or naive
-    first_valid = series.dropna().first_valid_index()
-    if first_valid is None:
-        return series
-        
-    first_val = series[first_valid]
-    if first_val.tzinfo is None:
-        # Naive -> Assume Local -> UTC
-        # Get system local timezone
-        local_tz = datetime.now().astimezone().tzinfo
-        return series.dt.tz_localize(local_tz).dt.tz_convert('UTC').dt.tz_convert(None)
-    else:
-        # Aware -> UTC -> Naive
-        return series.dt.tz_convert('UTC').dt.tz_convert(None)
+from pypho_timeline.utils.datetime_helpers import _normalize_datetime_to_utc_naive
 
 
 class TimelineWidget(QWidget):
@@ -225,7 +198,7 @@ class TimelineWidget(QWidget):
         if self.overall_time_range is not None:
             self.set_time_range(self.overall_time_range[0], self.overall_time_range[1])
     
-    def add_tracks_from_xdf_streams(self, xdf_stream_infos_df: pd.DataFrame, stream_names: Optional[List[str]] = None, fail_on_exception: bool=False):
+    def add_tracks_from_xdf_streams(self, xdf_stream_infos_df: pd.DataFrame, stream_names: Optional[List[str]] = None, fail_on_exception: bool=False, use_absolute_datetime_track_mode: bool = True):
         """
         Add tracks for each stream type from an xdf_stream_infos_df DataFrame.
         
@@ -308,7 +281,22 @@ class TimelineWidget(QWidget):
                                'recording_start_datetime', 'stream_start_datetime']
             for col in datetime_columns:
                 if col in stream_df.columns:
-                    stream_df[col] = _normalize_datetime_to_utc_naive(stream_df[col])
+                    if (not use_absolute_datetime_track_mode):
+                        # # Convert datetime to timestamp
+                        # timestamps = video_df['video_start_datetime'].values.astype('datetime64[ns]').astype(np.float64) / 1e9
+                        # # # Calculate t_start relative to reference or first video
+                        # if reference_timestamp is None:
+                        #     reference_timestamp = float(timestamps[0])    
+                        # t_start_values = timestamps - reference_timestamp
+                        stream_df[col] = _normalize_datetime_to_utc_naive(stream_df[col])
+
+                    else:
+                        ## absolute mode - matching the other tracks that use absolute datetimes
+                        # t_start_values = video_df['video_start_datetime'].values ## matching the other tracks that use absolute datetimes
+                        starts = stream_df[col]
+                        stream_df[col] = pd.to_datetime(starts).apply(lambda dt: dt.tz_localize('UTC') if dt.tzinfo is None else dt).values
+                        ## for compatibility with _normalize_datetime_to... we could add `, errors='coerce'`
+                        
             
             # Calculate duration_sec if not present but we have timestamp columns
             if 'duration_sec' not in stream_df.columns and 'duration_sec_check' not in stream_df.columns:
