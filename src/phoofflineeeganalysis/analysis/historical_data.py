@@ -37,14 +37,7 @@ set_log_level("WARNING")
 
 from phoofflineeeganalysis.helpers.indexing_helpers import reorder_columns_relative
 
-import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-# Module-level cache for XDF datetime metadata
-# Key: (file_path_str, mtime, size) for automatic invalidation when files change
-# Value: datetime object in UTC timezone
-_xdf_datetime_cache: Dict[Tuple[str, float, int], datetime] = {}
-_xdf_cache_lock = threading.Lock()
+from phopylslhelper.file_metadata_caching.data_file_metadata import DataFileMetadataParser
 
 
 class HistoricalData:
@@ -754,51 +747,11 @@ class HistoricalData:
 
 
     @classmethod
-    def _get_xdf_datetime_cached(cls, a_file: Path) -> datetime:
-        """Get XDF file datetime with caching to avoid reloading unchanged files.
-        
-        Uses module-level cache keyed by (file_path, mtime, size) for automatic invalidation.
-        Thread-safe for parallel processing.
-        
-        Args:
-            a_file: Path to the XDF file
-            
-        Returns:
-            datetime object in UTC timezone
-        """
-        from phoofflineeeganalysis.analysis.xdf_files import LabRecorderXDF
-        
-        # Get file stats for cache key
-        file_stat = a_file.stat()
-        cache_key = (a_file.as_posix(), file_stat.st_mtime, file_stat.st_size)
-        
-        # Check cache first (thread-safe)
-        with _xdf_cache_lock:
-            if cache_key in _xdf_datetime_cache:
-                return _xdf_datetime_cache[cache_key]
-        
-        # Cache miss - load from file
-        lab_recorder_xdf = LabRecorderXDF.init_basic_from_lab_recorder_xdf_file(a_xdf_file=a_file, debug_print=False)
-        meas_datetime = lab_recorder_xdf.file_datetime
-        
-        # Fallback to filename parsing if file_datetime is None
-        if meas_datetime is None:
-            meas_datetime = cls.extract_datetime_from_filename(a_file.name)
-            meas_datetime = meas_datetime.replace(tzinfo=timezone.utc) if meas_datetime.tzinfo is None else meas_datetime.astimezone(timezone.utc)
-        
-        # Store in cache (thread-safe)
-        with _xdf_cache_lock:
-            _xdf_datetime_cache[cache_key] = meas_datetime
-        
-        return meas_datetime
-
-
-    @classmethod
     def build_file_comparison_df(cls, recording_files: List[Path], max_workers: int = 3) -> pd.DataFrame:
         """ returns a dataframe with info about each file such as their modification time, etc
         
         Processes files in parallel using ThreadPoolExecutor for improved performance.
-        XDF file datetime metadata is cached to avoid reloading unchanged files.
+        Uses disk-persisted cache via DataFileMetadataParser to speed up subsequent runs.
         
         Args:
             recording_files: List of Path objects to recording files
@@ -825,63 +778,24 @@ class HistoricalData:
             
             
         """
-        metadata_key_dict = {'ctime':'st_ctime', 'size':'st_size', 'mtime':'st_mtime'}
-        datetime_col_names = ['start_t', 'ctime', 'mtime']
+        if not recording_files:
+            return pd.DataFrame()
         
-        def _process_single_file(idx_file_tuple: Tuple[int, Path]) -> Tuple[int, Optional[Dict]]:
-            """Process a single file and return its metadata. Thread-safe worker function."""
-            file_idx, a_file = idx_file_tuple
-            if not a_file.exists():
-                return (file_idx, None)
-            
-            try:
-                # Handle .xdf files separately since read_raw() doesn't support them
-                if a_file.suffix.lower() == '.xdf':
-                    # Use cached helper for XDF files
-                    meas_datetime = cls._get_xdf_datetime_cached(a_file)
-                    start_time = meas_datetime.timestamp() if hasattr(meas_datetime, 'timestamp') else meas_datetime[0]
-                else:
-                    raw = read_raw(a_file, preload=False)
-                    meas_datetime = HistoricalData.get_or_parse_datetime_from_raw(raw, allow_setting_meas_date_from_filename=True)
-                    start_time = meas_datetime.timestamp() if hasattr(meas_datetime, 'timestamp') else meas_datetime[0]
-                
-                a_file_metadata = a_file.stat()
-                a_file_metadata_dict = {col_name:getattr(a_file_metadata, file_metadata_key) for col_name, file_metadata_key in metadata_key_dict.items()}
-                result_dict = {'src_file_name': a_file.stem, 'start_t': start_time, 'src_file': a_file.as_posix(), 'meas_datetime':meas_datetime, **a_file_metadata_dict}
-                return (file_idx, result_dict)
-            except (ValueError, AttributeError, TypeError, KeyError) as e:
-                print(f'failed to load file: "{a_file}" with error: {e}. Skipping.')
-                return (file_idx, None)
+        # Determine cache path (use first file's parent directory)
+        cache_path = recording_files[0].parent / "_data_file_metadata_cache.csv"
         
-        # Parallel processing using ThreadPoolExecutor
-        results = [None] * len(recording_files)
-        effective_workers = min(max_workers, len(recording_files)) if recording_files else 1
+        # Use DataFileMetadataParser for cache-backed processing
+        df = DataFileMetadataParser.build_file_comparison_df_cached(
+            recording_files=recording_files,
+            cache_path=cache_path,
+            max_workers=max_workers,
+            use_cache=True,
+            force_rebuild=False
+        )
         
-        with ThreadPoolExecutor(max_workers=effective_workers) as executor:
-            future_to_idx = {executor.submit(_process_single_file, (idx, file)): idx for idx, file in enumerate(recording_files)}
-            for future in as_completed(future_to_idx):
-                try:
-                    file_idx, result_dict = future.result()
-                    results[file_idx] = result_dict
-                except Exception as e:
-                    idx = future_to_idx[future]
-                    print(f'EXCEPTION processing file {idx}: {e}')
-                    results[idx] = None
-        
-        # Filter out failed files (None results)
-        _out_df = [r for r in results if r is not None]
-
-        df = pd.DataFrame.from_records(_out_df) # , index='src_file_name'
-        # df['timestamp_dt'] = pd.to_datetime(df['start_t'], unit='s') ## add datetime column
-        # for a_col_name in list(metadata_key_dict.keys()):
-        for a_col_name in datetime_col_names:
-            # df[f'{a_col_name}_dt'] = pd.to_datetime(df[a_col_name], unit='s') 
-            df[a_col_name] = pd.to_datetime(df[a_col_name], unit='s') 
-
-        # df = df.sort_values(['meas_datetime', 'ctime', 'mtime', 'size', 'src_file_name', 'src_file'], na_position='first') # .reset_index(drop=True)    
-        df = df.sort_values(['meas_datetime', 'ctime', 'mtime', 'size', 'src_file'], ignore_index=True, inplace=False, ascending=False, na_position='last') #.reset_index(drop=True)
-        df = df.drop_duplicates(subset=['src_file', 'meas_datetime', 'start_t'], inplace=False, ignore_index=True, keep='first')
-
+        # The DataFileMetadataParser already returns the correct format with:
+        # - src_file, src_file_name, start_datetime, start_t, meas_datetime, file_size, size, ctime, mtime
+        # All columns are already in the correct format, so we can return it directly
         return df
     
 

@@ -1,0 +1,56 @@
+---
+description: AI rules derived by SpecStory from the project AI interaction history
+globs: *
+---
+
+## PROJECT OVERVIEW
+
+This document defines the rules and guidelines for the AI coding assistant in this project. It covers coding style, folder organization, tech stack, project-specific standards, workflow, release rules, and debugging. This file is a living document and will evolve as the project progresses.
+
+## CODE STYLE
+
+(This section is currently empty, but will be populated as code style guidelines are established.)
+
+## FOLDER ORGANIZATION
+
+- `file_metadata.py` and `video_metadata.py` have been moved from `pyPhoTimeline` into `PhoOfflineEEGAnalysis/src/phoofflineeeganalysis/analysis/`, replacing the existing `video_metadata.py` completely.
+- `file_metadata.py`, `video_metadata.py`, and `data_file_metadata.py` may be moved to `PhoPyLSLhelper` in the future to act as common imports for both `phoofflineeeganalysis` and `phopy_timeline`.
+- Moving all file metadata helpers/cachers to `PhoPyLSLhelper` is desired, and the major version should be updated to reflect the new functionality.
+- `file_metadata.py`, `video_metadata.py`, and `data_file_metadata.py` have been moved to `PhoPyLSLhelper/src/phopylslhelper/file_metadata_caching`.
+
+## TECH STACK
+
+(This section is currently empty, but will be populated as the tech stack is defined.)
+
+## PROJECT-SPECIFIC STANDARDS
+
+(This section is currently empty, but will be populated as project-specific standards are established.)
+
+## WORKFLOW & RELEASE RULES
+
+(This section is currently empty, but will be populated as workflow and release rules are established.)
+
+## REFERENCE EXAMPLES
+
+(This section is currently empty, but will be populated with reference examples as they become available.)
+
+## PROJECT DOCUMENTATION & CONTEXT SYSTEM
+
+(This section is currently empty, but will be populated as the project documentation and context system are established.)
+
+## DEBUGGING
+
+(This section is currently empty, but will be populated as debugging guidelines are established.)
+
+## FINAL DOs AND DON'Ts
+
+- When using `uv-deps-switcher` to manage dependencies, utilize the `ACTIVE_DEV_PATH_PREFIX` environment variable to handle machine-specific path configurations. Set it to `ACTIVE_DEV/` on machines where repos are located within an `ACTIVE_DEV` subfolder. Leave it unset or empty on machines where the repos are siblings.
+- When creating a cache-backed version of `build_file_comparison_df (...)`:
+  - The primary goal is to persist the file metadata (datetime, number of streams, etc.) to disk after processing, especially when the initial processing takes a significant amount of time.
+  - Initially, avoid extracting file duration or many other properties. Instead, enable incremental updates to add these properties to the cache after they've been retrieved (e.g., after a long full load).
+  - Implement parallel processing to improve performance, as file loads are independent and can be processed in parallel. This is particularly useful for obtaining a list of the most recent recordings to filter by.
+  - Initially, extract only the file datetime, the best-determined file recording date, and file size. More properties can be added later.
+- pyPhoTimeline/pypho_timeline/utils/video_metadata.py has been removed from the `pypho_timeline` package and imports have been updated to reference the version in `phoofflineeeganalysis`.
+- When working with `DataFileMetadataParser` and its cache-backed version of `build_file_comparison_df (...)`:
+  - The goal is to provide a disk-persisted cache for file metadata processing, especially for time-consuming operations.
+  - Start by extracting minimal metadata: file datetime, best-determined file recording date, and file size. More properties can be added incrementally later.

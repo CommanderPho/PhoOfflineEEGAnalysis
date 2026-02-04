@@ -23,7 +23,7 @@ Usage Examples:
     from phoofflineeeganalysis.analysis.UI.timeline import (
         TimelineWidget, VideoMetadataTrack, EEGRecordingTrack
     )
-    from phoofflineeeganalysis.analysis.video_metadata import VideoMetadataParser
+    from phopylslhelper.file_metadata_caching.video_metadata import VideoMetadataParser
     
     timeline = TimelineWidget()
     

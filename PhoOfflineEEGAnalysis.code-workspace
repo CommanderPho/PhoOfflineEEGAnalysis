@@ -4,16 +4,19 @@
 			"path": "."
 		},
 		{
-			"path": "../ACTIVE_DEV/PhoPyLSLhelper"
+			"path": "../PhoPyLSLhelper"
 		},
 		{
-			"path": "../ACTIVE_DEV/PhoPyMNEHelper"
+			"path": "../PhoPyMNEHelper"
 		},
 		{
-			"path": "../ACTIVE_DEV/pyPhoTimeline"
+			"path": "../pyPhoTimeline"
 		},
 		{
-			"path": "../ACTIVE_DEV/mne-python"
+			"path": "../mne-python"
+		},
+		{
+			"path": "../uv-deps-switcher"
 		}
 	],
 	"settings": {
@@ -42,5 +45,10 @@
 		"git.ignoreLimitWarning": true,
 		"python.languageServer": "None",
 		"problems.visibility": false
+	},
+	"extensions": {
+		"recommendations": [
+			"specstory.specstory-vscode"
+		]
 	}
 }

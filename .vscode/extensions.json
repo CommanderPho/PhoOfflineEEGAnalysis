@@ -1,5 +1,6 @@
 {
 	"recommendations": [
-		"kevinrose.vsc-python-indent"
+		"kevinrose.vsc-python-indent",
+		"specstory.specstory-vscode"
 	]
 }

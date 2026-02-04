@@ -70,7 +70,7 @@ dependencies = [
     "tsdownsample>=0.1.4.1",
     "holonote>=0.2.1",
     "pytz>=2025.2",
-    "phopylslhelper",
+    "phopylslhelper>=1.0.0",
     "nibabel>=5.3.2",
     "pyvistaqt>=0.11.3",
     "trame>=3.12.0",
@@ -93,10 +93,10 @@ build-backend = "hatchling.build"
 # WARNING: Dev mne requires numpy>=1.26, which conflicts with pyphocorehelpers (numpy<1.24)
 # This will cause resolution failures on darwin, but may work on Windows
 # If you need to lock on Windows only, you may need to temporarily remove this source
-mne = { path = "../ACTIVE_DEV/mne-python", editable = true }
-phopylslhelper = { path = "../ACTIVE_DEV/PhoPyLSLhelper", editable = true }
-phopymnehelper = { path = "../ACTIVE_DEV/PhoPyMNEHelper", editable = true }
-py-pho-timeline = { path = "../ACTIVE_DEV/pyPhoTimeline", editable = true }
+mne = { path = "../mne-python", editable = true }
+phopylslhelper = { path = "../PhoPyLSLhelper", editable = true }
+phopymnehelper = { path = "../PhoPyMNEHelper", editable = true }
+py-pho-timeline = { path = "../pyPhoTimeline", editable = true }
 
 [dependency-groups]
 trial = [
