@@ -1,0 +1,6 @@
+[tool.uv.sources]
+phopylslhelper = { git = "https://github.com/CommanderPho/phopylslhelper.git" }
+phopymnehelper = { git = "https://github.com/CommanderPho/PhoPyMNEHelper.git" }
+py-pho-timeline = { git = "https://github.com/CommanderPho/pyPhoTimeline.git" }
+mne = { git = "https://github.com/CommanderPho/mne-python.git" }
+

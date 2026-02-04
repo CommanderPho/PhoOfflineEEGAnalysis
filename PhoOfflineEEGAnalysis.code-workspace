@@ -4,22 +4,16 @@
 			"path": "."
 		},
 		{
-			"path": "../LSL_REPOS/LSL/PhoPyLSLhelper"
+			"path": "../ACTIVE_DEV/PhoPyLSLhelper"
 		},
 		{
-			"path": "../mne-python"
+			"path": "../ACTIVE_DEV/PhoPyMNEHelper"
 		},
 		{
-			"path": "../mnelab"
+			"path": "../ACTIVE_DEV/pyPhoTimeline"
 		},
 		{
-			"path": "../LSL_REPOS/App-SigVisualizer"
-		},
-		{
-			"path": "../PhoLabStreamingReceiver"
-		},
-		{
-			"path": "../../../Desktop/LSL Tools/Pho LSL Repos/LSL_REPOS/App-XDFStreamer"
+			"path": "../ACTIVE_DEV/mne-python"
 		}
 	],
 	"settings": {
@@ -45,6 +39,8 @@
 			"statusBar.foreground": "#ffffff",
 			"sideBarSectionHeader.border": "#cecece"
 		},
-		"python.languageServer": "None"
+		"git.ignoreLimitWarning": true,
+		"python.languageServer": "None",
+		"problems.visibility": false
 	}
 }

@@ -1,18 +1,18 @@
 [project]
 name = "phoofflineeeganalysis"
-version = "0.1.1"
+version = "0.2.2"
 description = "Add your description here"
 readme = "README.md"
 authors = [
     { name = "Pho Hale", email = "PhoHale@gmail.com" }
 ]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.11"
 dependencies = [
     "ipykernel>=6.30.1",
     "scipy>=1.13.1",
     "setuptools>=80.4.0",
     "wheel>=0.45.1",
-    "numpy~=1.20",
+    "numpy>=1.20,<1.24", # "numpy~=1.20",
     "qtpy>=2.4.3",
     "pyqt5==5.15.11",
     "pyqt5-qt5==5.15.2",
@@ -48,7 +48,7 @@ dependencies = [
     "tables>=3.9.2",
     "holoviews[recommended]>=1.20.2",
     "hvplot>=0.11.3",
-    "jupyter-bokeh>=4.0.5",
+    "jupyter-bokeh>=3.0.7,<4",
     "plotly>=6.3.0",
     "zarr>=2.18.2",
     "coiled>=1.122.0",
@@ -77,6 +77,8 @@ dependencies = [
     "meshio>=5.3.5",
     "gmsh>=4.15.0",
     "opencv-python>=4.8.0",
+    "phopymnehelper",
+    "py-pho-timeline",
 ]
 
 [project.scripts]
@@ -86,6 +88,18 @@ phoofflineeeganalysis = "phoofflineeeganalysis:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.uv]
 [tool.uv.sources]
-phopylslhelper = { path = "../LSL_REPOS/LSL/PhoPyLSLhelper", editable = true }
-mne = { path = "../mne-python", editable = true }
+# WARNING: Dev mne requires numpy>=1.26, which conflicts with pyphocorehelpers (numpy<1.24)
+# This will cause resolution failures on darwin, but may work on Windows
+# If you need to lock on Windows only, you may need to temporarily remove this source
+mne = { path = "../ACTIVE_DEV/mne-python", editable = true }
+phopylslhelper = { path = "../ACTIVE_DEV/PhoPyLSLhelper", editable = true }
+phopymnehelper = { path = "../ACTIVE_DEV/PhoPyMNEHelper", editable = true }
+py-pho-timeline = { path = "../ACTIVE_DEV/pyPhoTimeline", editable = true }
+
+[dependency-groups]
+trial = [
+    "opentimelineio>=0.18.1",
+    "opentimelineio-plugins>=0.18.1",
+]
