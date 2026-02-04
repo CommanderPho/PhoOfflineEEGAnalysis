@@ -95,6 +95,7 @@ class HistoricalData:
             '20250618-185519-Epoc X-raw.fif',
             '20250618-185519-Epoc X-raw.fif', # '20250618-185519'
             'eeg_data_2025-08-12T02-56-32.509841.csv',
+            'LabRecorder_Apogee_2025-11-04T105347.435Z_eeg.xdf',
         """
         candidates = re.findall(r'\d{4}[-_]?\d{2}[-_]?\d{2}[ T_-]?\d{2}[:\-]?\d{2}[:\-]?\d{2}', filename)
         for cand in candidates:
@@ -805,6 +806,8 @@ class HistoricalData:
         
         Usage:
         
+            from phoofflineeeganalysis.analysis.historical_data import HistoricalData
+
             pre_processed_EEG_recording_files = HistoricalData.get_recording_files(recordings_dir=sso.eeg_analyzed_parent_export_path)
             pre_processed_EEG_recording_file_df: pd.DataFrame = HistoricalData.build_file_comparison_df(recording_files=pre_processed_EEG_recording_files)
             pre_processed_EEG_recording_file_df
