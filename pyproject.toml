@@ -97,3 +97,9 @@ mne = { path = "../ACTIVE_DEV/mne-python", editable = true }
 phopylslhelper = { path = "../ACTIVE_DEV/PhoPyLSLhelper", editable = true }
 phopymnehelper = { path = "../ACTIVE_DEV/PhoPyMNEHelper", editable = true }
 py-pho-timeline = { path = "../ACTIVE_DEV/pyPhoTimeline", editable = true }
+
+[dependency-groups]
+trial = [
+    "opentimelineio>=0.18.1",
+    "opentimelineio-plugins>=0.18.1",
+]
