@@ -40,7 +40,10 @@ This document defines the rules and guidelines for the AI coding assistant in th
 
 ## DEBUGGING
 
-(This section is currently empty, but will be populated as debugging guidelines are established.)
+- All instances of logging statements that write to hardcoded, non-existent filepaths (e.g., `c:\\Users\\pho\\repos\\EmotivEpoc\\PhoOfflineEEGAnalysis\\.cursor\\debug.log`) that cause `FileNotFoundError` exceptions must be removed. These logging statements were likely added by the AI coding assistant and are wrapped in `# #region agent log` / `# #endregion` blocks. The entire block, including the region markers, should be removed. Also remove any `import json` statements or variable assignments that are only used for these logging statements. Specifically, check and remove these blocks from:
+  - `pypho_timeline/rendering/graphics/track_renderer.py`
+  - `pypho_timeline/rendering/datasources/track_datasource.py`
+  - `pypho_timeline/rendering/async_detail_fetcher.py`
 
 ## FINAL DOs AND DON'Ts
 
@@ -159,7 +162,7 @@ def export_eeg_dataset_to_airtable(raw: mne.io.BaseRaw,
         
         # Extract channel information
         ch_names = info.get('ch_names', [])
-        ch_types = raw.get_channel_types()
+        ch_types = raw.get('channel_types')
         n_channels = len(ch_names)
         sfreq = info.get('sfreq', None)
         
@@ -619,6 +622,7 @@ def export_timeline_to_json(timeline, output_path: Path, include_raw_data: bool 
                                 timestamps_iso.append(abs_time.isoformat())
                             else:
                                 timestamps_iso.append(None)
+                            timestamps_relative.append(0.0)
                         else:
                             timestamps_iso.append(None)
                             timestamps_relative.append(0.0)
@@ -657,26 +661,3 @@ def export_timeline_to_json(timeline, output_path: Path, include_raw_data: bool 
             streams_data.append(stream_entry)
             
         except Exception as e:
-            print(f"Warning: Failed to process datasource '{track_name}': {e}")
-            import traceback
-            traceback.print_exc()
-            continue
-    
-    # Build final JSON structure
-    top_level_metadata = {
-        'export_date': export_date.isoformat(),
-        'num_streams': len(streams_data),
-        'total_duration_seconds': total_duration,
-    }
-    
-    json_data = {
-        'metadata': top_level_metadata,
-        'streams': streams_data,
-    }
-    
-    # Convert to JSON-serializable format
-    json_data = _convert_to_json_serializable(json_data)
-    
-    # Write to file
-    try:
-        with open(output_path,
