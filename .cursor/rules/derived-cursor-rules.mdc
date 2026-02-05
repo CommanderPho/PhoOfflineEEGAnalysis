@@ -54,3 +54,629 @@ This document defines the rules and guidelines for the AI coding assistant in th
 - When working with `DataFileMetadataParser` and its cache-backed version of `build_file_comparison_df (...)`:
   - The goal is to provide a disk-persisted cache for file metadata processing, especially for time-consuming operations.
   - Start by extracting minimal metadata: file datetime, best-determined file recording date, and file size. More properties can be added incrementally later.
+- When loading from cache, `start_t`, `ctime`, and `mtime` may be datetime strings. Ensure the code handles both numeric timestamps and datetime strings during conversion.
+  - When loading from cache, for the columns `start_t`, `ctime`, and `mtime`, check the dtype. If numeric, use `unit='s'` in the `pd.to_datetime` conversion; otherwise parse as a datetime string directly.
+- When exporting EEG datasets to Airtable:
+  - Install pyairtable: `pip install pyairtable`
+  - Get your Airtable API key and base ID from Airtable
+  - Use the following functions to export EEG data to Airtable:
+
+```python
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional, Dict, Any, List
+import pandas as pd
+import numpy as np
+
+try:
+    from pyairtable import Table
+    AIRTABLE_AVAILABLE = True
+except ImportError:
+    AIRTABLE_AVAILABLE = False
+
+import mne
+
+
+def export_eeg_dataset_to_airtable(raw: mne.io.BaseRaw, 
+                                    airtable_base_id: str,
+                                    airtable_table_name: str,
+                                    airtable_api_key: str,
+                                    xdf_file_path: Optional[Path] = None,
+                                    additional_fields: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Export a loaded EEG dataset from an XDF file to Airtable.
+    
+    This function extracts metadata and summary information from an MNE Raw object
+    (loaded from an XDF file) and creates a record in Airtable.
+    
+    Args:
+        raw: MNE Raw object containing the EEG data
+        airtable_base_id: Airtable base ID (e.g., "appXXXXXXXXXXXXXX")
+        airtable_table_name: Name of the Airtable table to write to
+        airtable_api_key: Airtable API key
+        xdf_file_path: Optional path to the source XDF file
+        additional_fields: Optional dictionary of additional fields to include in the record
+        
+    Returns:
+        Dictionary with 'success' (bool), 'record_id' (str if successful), and 'error' (str if failed)
+        
+    Usage:
+        from phoofflineeeganalysis.analysis.xdf_files import LabRecorderXDF
+        from phoofflineeeganalysis.analysis.airtable_export import export_eeg_dataset_to_airtable
+        
+        # Load XDF file
+        xdf_file = Path("path/to/file.xdf")
+        lab_recorder_xdf = LabRecorderXDF.init_from_lab_recorder_xdf_file(
+            a_xdf_file=xdf_file,
+            should_load_full_file_data=True
+        )
+        
+        # Get the first EEG Raw object
+        eeg_raws = lab_recorder_xdf.datasets_dict.get('EEG', [])
+        if eeg_raws:
+            raw = eeg_raws[0]
+            
+            # Export to Airtable
+            result = export_eeg_dataset_to_airtable(
+                raw=raw,
+                airtable_base_id="appXXXXXXXXXXXXXX",
+                airtable_table_name="EEG Recordings",
+                airtable_api_key="your_api_key_here",
+                xdf_file_path=xdf_file
+            )
+            print(result)
+    """
+    if not AIRTABLE_AVAILABLE:
+        return {
+            'success': False,
+            'error': 'pyairtable is not installed. Install it with: pip install pyairtable'
+        }
+    
+    try:
+        # Initialize Airtable table
+        table = Table(airtable_api_key, airtable_base_id, airtable_table_name)
+        
+        # Extract metadata from Raw object
+        info = raw.info
+        
+        # Get measurement date
+        meas_date = info.get('meas_date', None)
+        if meas_date is not None:
+            if isinstance(meas_date, tuple):
+                meas_date = datetime.fromtimestamp(meas_date[0], tz=timezone.utc)
+            elif hasattr(meas_date, 'timestamp'):
+                if meas_date.tzinfo is None:
+                    meas_date = meas_date.replace(tzinfo=timezone.utc)
+                else:
+                    meas_date = meas_date.astimezone(timezone.utc)
+        
+        # Get file path from description or provided path
+        file_path_str = None
+        if xdf_file_path is not None:
+            file_path_str = str(xdf_file_path.resolve())
+        elif 'description' in info:
+            file_path_str = info['description']
+        
+        # Extract channel information
+        ch_names = info.get('ch_names', [])
+        ch_types = raw.get_channel_types()
+        n_channels = len(ch_names)
+        sfreq = info.get('sfreq', None)
+        
+        # Get duration
+        duration_sec = None
+        if len(raw.times) > 0:
+            duration_sec = float(raw.times[-1])
+        
+        # Get device information if available
+        device_info = info.get('device_info', {})
+        device_type = device_info.get('type', None)
+        device_model = device_info.get('model', None)
+        device_serial = device_info.get('device_serial', None)
+        
+        # Extract stream info if available
+        stream_info = device_info.get('stream_info', {})
+        stream_name = stream_info.get('name', None)
+        source_id = stream_info.get('source_id', None)
+        hostname = stream_info.get('hostname', None)
+        
+        # Get annotations summary
+        annotations = raw.annotations
+        n_annotations = len(annotations) if annotations is not None else 0
+        annotation_descriptions = []
+        if annotations is not None and len(annotations) > 0:
+            annotation_descriptions = list(set(annotations.description))
+        
+        # Build Airtable record fields
+        fields = {
+            'Recording Date': meas_date.isoformat() if meas_date else None,
+            'File Path': file_path_str,
+            'File Name': Path(file_path_str).name if file_path_str else None,
+            'Number of Channels': n_channels,
+            'Channel Names': ', '.join(ch_names) if ch_names else None,
+            'Channel Types': ', '.join(set(ch_types)) if ch_types else None,
+            'Sampling Rate (Hz)': sfreq,
+            'Duration (seconds)': duration_sec,
+            'Device Type': device_type,
+            'Device Model': device_model,
+            'Device Serial': device_serial,
+            'Stream Name': stream_name,
+            'Source ID': source_id,
+            'Hostname': hostname,
+            'Number of Annotations': n_annotations,
+            'Annotation Types': ', '.join(annotation_descriptions) if annotation_descriptions else None,
+        }
+        
+        # Add any additional fields
+        if additional_fields:
+            fields.update(additional_fields)
+        
+        # Remove None values (Airtable doesn't like None)
+        fields = {k: v for k, v in fields.items() if v is not None}
+        
+        # Create record in Airtable
+        record = table.create(fields)
+        
+        return {
+            'success': True,
+            'record_id': record['id'],
+            'fields': record['fields']
+        }
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+def export_multiple_eeg_datasets_to_airtable(raws: List[mne.io.BaseRaw],
+                                             airtable_base_id: str,
+                                             airtable_table_name: str,
+                                             airtable_api_key: str,
+                                             xdf_file_paths: Optional[List[Path]] = None,
+                                             additional_fields_list: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    """
+    Export multiple EEG datasets to Airtable.
+    
+    Args:
+        raws: List of MNE Raw objects
+        airtable_base_id: Airtable base ID
+        airtable_table_name: Name of the Airtable table
+        airtable_api_key: Airtable API key
+        xdf_file_paths: Optional list of XDF file paths (must match length of raws)
+        additional_fields_list: Optional list of additional field dictionaries
+        
+    Returns:
+        List of result dictionaries from export_eeg_dataset_to_airtable
+    """
+    results = []
+    
+    for idx, raw in enumerate(raws):
+        xdf_path = xdf_file_paths[idx] if xdf_file_paths and idx < len(xdf_file_paths) else None
+        additional = additional_fields_list[idx] if additional_fields_list and idx < len(additional_fields_list) else None
+        
+        result = export_eeg_dataset_to_airtable(
+            raw=raw,
+            airtable_base_id=airtable_base_id,
+            airtable_table_name=airtable_table_name,
+            airtable_api_key=airtable_api_key,
+            xdf_file_path=xdf_path,
+            additional_fields=additional
+        )
+        results.append(result)
+    
+    return results
+
+
+__all__ = ['export_eeg_dataset_to_airtable', 'export_multiple_eeg_datasets_to_airtable']
+```
+- The JSON exporter should be located in `PhoPyMNEHelper/src/phopymnehelper/exporters/JSON_Exporter.py` as a standalone function, following the pattern of `AiirTable_Exporter.py`.
+- The function name should be `export_xdf_data_to_json()`
+- Usage: Import directly from `phopymnehelper.exporters.JSON_Exporter`
+- To access the newest `_out_eeg_raw` and `_out_xdf_stream_infos_df` from a notebook after the timeline is built, directly use the variables in the notebook namespace where they were initially loaded. They remain available after building the timeline.
+- Complete demonstration of exporting the newest EEG dataset to Airtable after loading:
+
+```python
+# ===================================================================================
+# Complete Airtable Export Demonstration
+# Export the newest EEG dataset from loaded XDF files to Airtable
+# ===================================================================================
+
+from phopymnehelper.exporters.AiirTable_Exporter import export_eeg_dataset_to_airtable
+from phoofflineeeganalysis.analysis.xdf_files import LabRecorderXDF, XDFDataStreamAccessor
+from pathlib import Path
+import pandas as pd
+
+# ===================================================================================
+# Step 1: Ensure data is loaded (assuming this was already done in previous cells)
+# ===================================================================================
+# The following variables should already exist from earlier cells:
+# - _out_eeg_raw: List of MNE Raw objects (sorted by time, newest last)
+# - _out_xdf_stream_infos_df: DataFrame with stream information
+# - lab_recorder_xdf_files: List of XDF file paths
+
+# Verify data is loaded
+assert '_out_eeg_raw' in locals() or '_out_eeg_raw' in globals(), "Please load XDF data first using LabRecorderXDF.load_and_process_all()"
+assert len(_out_eeg_raw) > 0, "No EEG datasets loaded"
+
+# ===================================================================================
+# Step 2: Get the newest EEG dataset
+# ===================================================================================
+# The _out_eeg_raw list is sorted by time (most recent last), so the newest is the last item
+newest_eeg_raw = _out_eeg_raw[-1]
+
+# Get the corresponding stream info for the newest dataset
+# Find the dataset index (should be the highest xdf_dataset_idx)
+newest_dataset_idx = _out_xdf_stream_infos_df['xdf_dataset_idx'].max()
+newest_stream_info = _out_xdf_stream_infos_df[_out_xdf_stream_infos_df['xdf_dataset_idx'] == newest_dataset_idx].iloc[0]
+
+# Get the source XDF file path
+newest_xdf_filename = newest_stream_info.get('xdf_filename', None)
+newest_xdf_file_path = None
+if newest_xdf_filename:
+    # Find the matching file in lab_recorder_xdf_files
+    for xdf_file in lab_recorder_xdf_files:
+        if xdf_file.name == newest_xdf_filename:
+            newest_xdf_file_path = xdf_file
+            break
+
+# If not found, try to get from raw.info.description
+if newest_xdf_file_path is None:
+    desc = newest_eeg_raw.info.get('description', None)
+    if desc:
+        newest_xdf_file_path = Path(desc)
+
+print(f"Newest EEG Dataset Info:")
+print(f"  Dataset Index: {newest_dataset_idx}")
+print(f"  Recording Date: {newest_eeg_raw.info.get('meas_date', 'N/A')}")
+print(f"  Duration: {newest_eeg_raw.times[-1]:.2f} seconds" if len(newest_eeg_raw.times) > 0 else "  Duration: N/A")
+print(f"  Channels: {len(newest_eeg_raw.info['ch_names'])}")
+print(f"  Source File: {newest_xdf_file_path}")
+
+# ===================================================================================
+# Step 3: Prepare Airtable credentials
+# ===================================================================================
+# Set your Airtable credentials (you may want to use environment variables or a config file)
+AIRTABLE_API_KEY = "your_airtable_api_key_here"  # Get from https://airtable.com/api
+AIRTABLE_BASE_ID = "appXXXXXXXXXXXXXX"  # Get from your Airtable base URL
+AIRTABLE_TABLE_NAME = "EEG Recordings"  # Name of your table in Airtable
+
+# ===================================================================================
+# Step 4: Prepare additional fields from stream info
+# ===================================================================================
+additional_fields = {
+    'XDF Filename': newest_stream_info.get('xdf_filename', None),
+    'Stream Name': newest_stream_info.get('name', None),
+    'Stream Type': newest_stream_info.get('type', None),
+    'Sampling Rate (Hz)': newest_stream_info.get('fs', None),
+    'Number of Samples': newest_stream_info.get('n_samples', None),
+    'Recording Day Date': newest_stream_info.get('recording_day_date', None),
+    'Duration (seconds)': newest_stream_info.get('duration_sec', None),
+    'Source ID': newest_stream_info.get('source_id', None),
+    'Hostname': newest_stream_info.get('hostname', None),
+    'Device Key': newest_stream_info.get('eeg_device_key', None),
+    'Number of Segments': newest_stream_info.get('n_eeg_segments_in_group', None),
+}
+
+# Remove None values
+additional_fields = {k: v for k, v in additional_fields.items() if v is not None}
+
+# Convert datetime/timedelta objects to strings if needed
+for key, value in additional_fields.items():
+    if hasattr(value, 'isoformat'):
+        additional_fields[key] = value.isoformat()
+    elif hasattr(value, 'total_seconds'):
+        additional_fields[key] = value.total_seconds()
+
+# ===================================================================================
+# Step 5: Export to Airtable
+# ===================================================================================
+print(f"\nExporting to Airtable...")
+print(f"  Base ID: {AIRTABLE_BASE_ID}")
+print(f"  Table: {AIRTABLE_TABLE_NAME}")
+
+result = export_eeg_dataset_to_airtable(
+    raw=newest_eeg_raw,
+    airtable_base_id=AIRTABLE_BASE_ID,
+    airtable_table_name=AIRTABLE_TABLE_NAME,
+    airtable_api_key=AIRTABLE_API_KEY,
+    xdf_file_path=newest_xdf_file_path,
+    additional_fields=additional_fields
+)
+
+# ===================================================================================
+# Step 6: Display results
+# ===================================================================================
+if result['success']:
+    print(f"\n✅ Successfully exported to Airtable!")
+    print(f"  Record ID: {result['record_id']}")
+    print(f"  Fields created: {list(result['fields'].keys())}")
+    
+    # Display some key fields
+    print(f"\nKey exported fields:")
+    key_fields = ['Recording Date', 'File Name', 'Number of Channels', 
+                  'Sampling Rate (Hz)', 'Duration (seconds)', 'Stream Name']
+    for field_name in key_fields:
+        if field_name in result['fields']:
+            print(f"  {field_name}: {result['fields'][field_name]}")
+else:
+    print(f"\n❌ Export failed!")
+    print(f"  Error: {result.get('error', 'Unknown error')}")
+
+# ===================================================================================
+# Optional: Export multiple newest datasets (e.g., last 5)
+# ===================================================================================
+# If you want to export the last N newest datasets:
+"""
+from phopymnehelper.exporters.AiirTable_Exporter import export_multiple_eeg_datasets_to_airtable
+
+# Get last 5 newest datasets
+n_newest = 5
+newest_raws = _out_eeg_raw[-n_newest:]
+newest_indices = _out_xdf_stream_infos_df['xdf_dataset_idx'].nlargest(n_newest).tolist()
+newest_xdf_paths = []
+
+for idx in newest_indices:
+    stream_info = _out_xdf_stream_infos_df[_out_xdf_stream_infos_df['xdf_dataset_idx'] == idx].iloc[0]
+    xdf_filename = stream_info.get('xdf_filename', None)
+    if xdf_filename:
+        for xdf_file in lab_recorder_xdf_files:
+            if xdf_file.name == xdf_filename:
+                newest_xdf_paths.append(xdf_file)
+                break
+
+# Export all
+results = export_multiple_eeg_datasets_to_airtable(
+    raws=newest_raws,
+    airtable_base_id=AIRTABLE_BASE_ID,
+    airtable_table_name=AIRTABLE_TABLE_NAME,
+    airtable_api_key=AIRTABLE_API_KEY,
+    xdf_file_paths=newest_xdf_paths
+)
+
+# Check results
+successful = sum(1 for r in results if r['success'])
+print(f"Successfully exported {successful}/{len(results)} datasets")
+"""
+```
+- To export to JSON from the loaded datasource, after the timeline is built and all details are loaded, you can export directly using the original `_out_eeg_raw` and `_out_xdf_stream_infos_df` variables:
+
+```python
+# After timeline is built and all details are loaded, you can export directly:
+
+from phopymnehelper.exporters.JSON_Exporter import export_xdf_data_to_json
+from pathlib import Path
+
+# The original _out_eeg_raw and _out_xdf_stream_infos_df are still available
+# (they were used to build the timeline)
+
+output_path = Path("eeg_export.json")
+export_xdf_data_to_json(
+    eeg_raws=_out_eeg_raw,  # Original Raw objects with all metadata
+    stream_infos_df=_out_xdf_stream_infos_df,  # Original stream info
+    output_path=output_path,
+    include_raw_data=True,
+    max_samples_per_stream=10000  # Optional: limit for large files
+)
+```
+- If you are building the timeline using `build_from_xdf_files()` and do not have access to the original `_out_eeg_raw` and `_out_xdf_stream_infos_df` variables, use the following function to export data from the timeline's datasources.
+
+```python
+# Add this to your notebook or create as a helper function
+
+from phopymnehelper.exporters.JSON_Exporter import _convert_to_json_serializable
+from pathlib import Path
+from datetime import datetime, timezone
+import pandas as pd
+import json
+from typing import Dict, Any, List, Optional
+
+def export_timeline_to_json(timeline, output_path: Path, include_raw_data: bool = True, 
+                            max_samples_per_stream: Optional[int] = None) -> Path:
+    """
+    Export timeline datasources to JSON format compatible with JSON_Exporter.
+    
+    This extracts data from the timeline's datasources (which contain processed
+    DataFrames) rather than requiring the original MNE Raw objects.
+    
+    Args:
+        timeline: SimpleTimelineWidget instance with loaded datasources
+        output_path: Path where JSON file will be saved
+        include_raw_data: Whether to include raw time-series data (default: True)
+        max_samples_per_stream: Optional maximum number of samples per stream
+        
+    Returns:
+        Path to the created JSON file
+        
+    Usage:
+        from pathlib import Path
+        
+        # After timeline is built and all details are loaded
+        output_path = Path("timeline_export.json")
+        export_timeline_to_json(timeline, output_path)
+    """
+    if not hasattr(timeline, 'track_datasources'):
+        raise ValueError("Timeline does not have track_datasources attribute")
+    
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Collect all EEG datasources
+    eeg_datasources = []
+    for track_name, datasource in timeline.track_datasources.items():
+        # Check if this is an EEG datasource (has EEG channel data)
+        if hasattr(datasource, 'detailed_df') and datasource.detailed_df is not None:
+            detailed_df = datasource.detailed_df
+            # Check if it has EEG-like channel columns
+            eeg_channels = ['AF3', 'F7', 'F3', 'FC5', 'T7', 'P7', 'O1', 'O2', 
+                          'P8', 'T8', 'FC6', 'F4', 'F8', 'AF4']
+            has_eeg_channels = any(ch in detailed_df.columns for ch in eeg_channels)
+            if has_eeg_channels and 't' in detailed_df.columns:
+                eeg_datasources.append((track_name, datasource))
+    
+    if not eeg_datasources:
+        raise ValueError("No EEG datasources found in timeline")
+    
+    # Build top-level metadata
+    export_date = datetime.now(timezone.utc)
+    total_duration = 0.0
+    
+    # Process each EEG datasource
+    streams_data = []
+    
+    for stream_idx, (track_name, datasource) in enumerate(eeg_datasources):
+        try:
+            intervals_df = datasource.intervals_df
+            detailed_df = datasource.detailed_df
+            
+            # Calculate duration from intervals
+            if not intervals_df.empty and 't_duration' in intervals_df.columns:
+                stream_duration = intervals_df['t_duration'].sum()
+            elif 't' in detailed_df.columns and len(detailed_df) > 1:
+                t_min = detailed_df['t'].min()
+                t_max = detailed_df['t'].max()
+                if isinstance(t_min, (datetime, pd.Timestamp)) and isinstance(t_max, (datetime, pd.Timestamp)):
+                    stream_duration = (t_max - t_min).total_seconds()
+                else:
+                    stream_duration = float(t_max - t_min)
+            else:
+                stream_duration = 0.0
+            
+            total_duration += stream_duration
+            
+            # Extract metadata from intervals and detailed data
+            file_info = {
+                'track_name': track_name,
+                'datasource_name': datasource.custom_datasource_name,
+            }
+            
+            # Get recording datetime from intervals
+            if not intervals_df.empty and 't_start' in intervals_df.columns:
+                t_start = intervals_df['t_start'].iloc[0]
+                if isinstance(t_start, (datetime, pd.Timestamp)):
+                    file_info['recording_datetime'] = t_start
+                elif isinstance(t_start, (float, int)):
+                    # Assume Unix timestamp
+                    file_info['recording_datetime'] = datetime.fromtimestamp(t_start, tz=timezone.utc)
+            
+            # Extract channel information from detailed_df
+            eeg_channels = [col for col in detailed_df.columns if col != 't']
+            ch_types = ['eeg'] * len(eeg_channels)
+            
+            # Estimate sampling rate from time differences
+            sfreq = None
+            if 't' in detailed_df.columns and len(detailed_df) > 1:
+                time_diffs = detailed_df['t'].diff().dropna()
+                if len(time_diffs) > 0:
+                    # Check if time_diffs contains Timedelta objects (from datetime diff)
+                    first_diff = time_diffs.iloc[0]
+                    if isinstance(first_diff, pd.Timedelta):
+                        # Convert all Timedelta objects to seconds
+                        avg_diff = time_diffs.apply(lambda x: x.total_seconds() if isinstance(x, pd.Timedelta) else float(x)).median()
+                    elif isinstance(first_diff, (datetime, pd.Timestamp)):
+                        # This shouldn't happen (diff of datetime gives Timedelta), but handle it
+                        avg_diff = time_diffs.apply(lambda x: x.total_seconds() if hasattr(x, 'total_seconds') else float(x)).median()
+                    else:
+                        # Numeric differences (already in seconds)
+                        avg_diff = float(time_diffs.median())
+                    if avg_diff > 0:
+                        sfreq = 1.0 / avg_diff
+            
+            channel_info = {
+                'channel_names': eeg_channels,
+                'channel_types': ch_types,
+                'sampling_rate': sfreq,
+            }
+            
+            # Extract raw data if requested
+            data_dict = None
+            if include_raw_data and detailed_df is not None and len(detailed_df) > 0:
+                # Prepare data for export
+                data_df = detailed_df.copy()
+                
+                # Convert 't' column to timestamps
+                if 't' in data_df.columns:
+                    timestamps_iso = []
+                    timestamps_relative = []
+                    
+                    t_col = data_df['t']
+                    t_first = t_col.iloc[0]
+                    
+                    for t_val in t_col:
+                        if isinstance(t_val, (datetime, pd.Timestamp)):
+                            timestamps_iso.append(t_val.isoformat())
+                            if isinstance(t_first, (datetime, pd.Timestamp)):
+                                rel_sec = (t_val - t_first).total_seconds()
+                            else:
+                                rel_sec = 0.0
+                            timestamps_relative.append(rel_sec)
+                        elif isinstance(t_val, (float, int)):
+                            # Assume relative seconds
+                            timestamps_relative.append(float(t_val))
+                            if isinstance(t_first, (datetime, pd.Timestamp)):
+                                abs_time = t_first + pd.Timedelta(seconds=float(t_val))
+                                timestamps_iso.append(abs_time.isoformat())
+                            else:
+                                timestamps_iso.append(None)
+                        else:
+                            timestamps_iso.append(None)
+                            timestamps_relative.append(0.0)
+                    
+                    # Apply max_samples limit if specified
+                    if max_samples_per_stream is not None and len(data_df) > max_samples_per_stream:
+                        indices = np.linspace(0, len(data_df) - 1, max_samples_per_stream, dtype=int)
+                        data_df = data_df.iloc[indices].reset_index(drop=True)
+                        timestamps_iso = [timestamps_iso[i] for i in indices]
+                        timestamps_relative = [timestamps_relative[i] for i in indices]
+                    
+                    # Build channel data dictionary
+                    channels_data = {}
+                    for ch_name in eeg_channels:
+                        if ch_name in data_df.columns:
+                            channels_data[ch_name] = data_df[ch_name].tolist()
+                    
+                    data_dict = {
+                        'timestamps_relative_seconds': timestamps_relative,
+                        'channels': channels_data,
+                    }
+                    
+                    if any(ts is not None for ts in timestamps_iso):
+                        data_dict['timestamps'] = timestamps_iso
+            
+            # Build stream entry
+            stream_entry = {
+                'stream_index': stream_idx,
+                'file_info': file_info,
+                'channel_info': channel_info,
+            }
+            
+            if data_dict is not None:
+                stream_entry['data'] = data_dict
+            
+            streams_data.append(stream_entry)
+            
+        except Exception as e:
+            print(f"Warning: Failed to process datasource '{track_name}': {e}")
+            import traceback
+            traceback.print_exc()
+            continue
+    
+    # Build final JSON structure
+    top_level_metadata = {
+        'export_date': export_date.isoformat(),
+        'num_streams': len(streams_data),
+        'total_duration_seconds': total_duration,
+    }
+    
+    json_data = {
+        'metadata': top_level_metadata,
+        'streams': streams_data,
+    }
+    
+    # Convert to JSON-serializable format
+    json_data = _convert_to_json_serializable(json_data)
+    
+    # Write to file
+    try:
+        with open(output_path,

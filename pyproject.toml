@@ -99,6 +99,9 @@ phopymnehelper = { path = "../PhoPyMNEHelper", editable = true }
 py-pho-timeline = { path = "../pyPhoTimeline", editable = true }
 
 [dependency-groups]
+debug = [
+    "viztracer>=1.1.1",
+]
 trial = [
     "opentimelineio>=0.18.1",
     "opentimelineio-plugins>=0.18.1",
