@@ -44,6 +44,27 @@ This document defines the rules and guidelines for the AI coding assistant in th
   - `pypho_timeline/rendering/graphics/track_renderer.py`
   - `pypho_timeline/rendering/datasources/track_datasource.py`
   - `pypho_timeline/rendering/async_detail_fetcher.py`
+- Additionally, search all other repos in the workspace to find any bad Cursor-added logging statements and remove those too.
+- When encountering a `TypeError: Invalid comparison between dtype=datetime64[ns] and float64` in `pyPhoTimeline/pypho_timeline/rendering/datasources/track_datasource.py` during the creation of a mask for filtering data (e.g., `mask = (self.detailed_df['t'] >= t_start) & (self.detailed_df['t'] < t_end)`), this indicates an attempt to compare a datetime column (`datetime64[ns]`) with float values. Investigate `t_start` and `t_end` to ensure they are of type `datetime` or can be converted to `datetime` before the comparison. The following steps **must** be performed to ensure type compatibility before the comparison:
+   1. Check if `detailed_df['t']` is datetime (not just `intervals_df['t_start']`).
+   2. Convert `t_start` and `t_end` to match the dtype of `detailed_df['t']`:
+      - If `detailed_df['t']` is datetime: convert `t_start`/`t_end` to datetime (handling float timestamps and ensuring timezone awareness).
+      - If `detailed_df['t']` is numeric: convert `t_start`/`t_end` to float (handling datetime objects).
+- The above `TypeError: Invalid comparison between dtype=datetime64[ns] and float64` can also occur in the following files. When it occurs, apply the specified fix:
+   - `pyPhoTimeline/pypho_timeline/rendering/graphics/vispy_video_epoch_renderer.py` in the `_do_update_epochs` method (line 327-328).
+   - `pyPhoTimeline/pypho_timeline/rendering/graphics/vispy_video_epoch_renderer.py` in the camera range calculation (line 388-389).
+   - `pyPhoTimeline/pypho_timeline/rendering/graphics/track_renderer.py` in the `get_overview_bounds` method (line 560-561).
+- When encountering a `TypeError: Cannot compare tz-naive and tz-aware datetime-like objects` in `pyPhoTimeline/pypho_timeline/rendering/datasources/track_datasource.py` during the creation of a mask for filtering data (e.g., `mask = (self.detailed_df['t'] >= t_start) & (self.detailed_df['t'] < t_end)`), this indicates an attempt to compare a timezone-naive datetime column with a timezone-aware datetime object (or vice versa). Investigate `t_start` and `t_end` and ensure they have the same timezone awareness as `detailed_df['t']` before the comparison. The following steps **must** be performed to ensure timezone compatibility before the comparison:
+   1. Check if `detailed_df['t']` is datetime and if it is timezone-aware.
+   2. Determine the timezone of `detailed_df['t']`.
+   3. Convert `t_start` and `t_end` to match the timezone awareness of `detailed_df['t']`:
+      - If `detailed_df['t']` is timezone-aware:
+         - If `t_start`/`t_end` are not `datetime` objects, convert them to `datetime`.
+         - If `t_start`/`t_end` are timezone-naive, localize them to the timezone of `detailed_df['t']`.
+         - If `t_start`/`t_end` are timezone-aware but have a different timezone, convert them to the timezone of `detailed_df['t']`.
+      - If `detailed_df['t']` is timezone-naive:
+         - If `t_start`/`t_end` are not `datetime` objects, convert them to `datetime`.
+         - If `t_start`/`t_end` are timezone-aware, remove their timezone information (convert to UTC then remove timezone to make it naive).
 
 ## FINAL DOs AND DON'Ts
 
@@ -576,88 +597,4 @@ def export_timeline_to_json(timeline, output_path: Path, include_raw_data: bool 
                     first_diff = time_diffs.iloc[0]
                     if isinstance(first_diff, pd.Timedelta):
                         # Convert all Timedelta objects to seconds
-                        avg_diff = time_diffs.apply(lambda x: x.total_seconds() if isinstance(x, pd.Timedelta) else float(x)).median()
-                    elif isinstance(first_diff, (datetime, pd.Timestamp)):
-                        # This shouldn't happen (diff of datetime gives Timedelta), but handle it
-                        avg_diff = time_diffs.apply(lambda x: x.total_seconds() if hasattr(x, 'total_seconds') else float(x)).median()
-                    else:
-                        # Numeric differences (already in seconds)
-                        avg_diff = float(time_diffs.median())
-                    if avg_diff > 0:
-                        sfreq = 1.0 / avg_diff
-            
-            channel_info = {
-                'channel_names': eeg_channels,
-                'channel_types': ch_types,
-                'sampling_rate': sfreq,
-            }
-            
-            # Extract raw data if requested
-            data_dict = None
-            if include_raw_data and detailed_df is not None and len(detailed_df) > 0:
-                # Prepare data for export
-                data_df = detailed_df.copy()
-                
-                # Convert 't' column to timestamps
-                if 't' in data_df.columns:
-                    timestamps_iso = []
-                    timestamps_relative = []
-                    
-                    t_col = data_df['t']
-                    t_first = t_col.iloc[0]
-                    
-                    for t_val in t_col:
-                        if isinstance(t_val, (datetime, pd.Timestamp)):
-                            timestamps_iso.append(t_val.isoformat())
-                            if isinstance(t_first, (datetime, pd.Timestamp)):
-                                rel_sec = (t_val - t_first).total_seconds()
-                            else:
-                                rel_sec = 0.0
-                            timestamps_relative.append(rel_sec)
-                        elif isinstance(t_val, (float, int)):
-                            # Assume relative seconds
-                            timestamps_relative.append(float(t_val))
-                            if isinstance(t_first, (datetime, pd.Timestamp)):
-                                abs_time = t_first + pd.Timedelta(seconds=float(t_val))
-                                timestamps_iso.append(abs_time.isoformat())
-                            else:
-                                timestamps_iso.append(None)
-                            timestamps_relative.append(0.0)
-                        else:
-                            timestamps_iso.append(None)
-                            timestamps_relative.append(0.0)
-                    
-                    # Apply max_samples limit if specified
-                    if max_samples_per_stream is not None and len(data_df) > max_samples_per_stream:
-                        indices = np.linspace(0, len(data_df) - 1, max_samples_per_stream, dtype=int)
-                        data_df = data_df.iloc[indices].reset_index(drop=True)
-                        timestamps_iso = [timestamps_iso[i] for i in indices]
-                        timestamps_relative = [timestamps_relative[i] for i in indices]
-                    
-                    # Build channel data dictionary
-                    channels_data = {}
-                    for ch_name in eeg_channels:
-                        if ch_name in data_df.columns:
-                            channels_data[ch_name] = data_df[ch_name].tolist()
-                    
-                    data_dict = {
-                        'timestamps_relative_seconds': timestamps_relative,
-                        'channels': channels_data,
-                    }
-                    
-                    if any(ts is not None for ts in timestamps_iso):
-                        data_dict['timestamps'] = timestamps_iso
-            
-            # Build stream entry
-            stream_entry = {
-                'stream_index': stream_idx,
-                'file_info': file_info,
-                'channel_info': channel_info,
-            }
-            
-            if data_dict is not None:
-                stream_entry['data'] = data_dict
-            
-            streams_data.append(stream_entry)
-            
-        except Exception as e:
+                        avg_diff = time_diffs.apply(lambda x: x

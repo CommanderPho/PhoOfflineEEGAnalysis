@@ -1,31 +1,7 @@
 ---
-name: Add context menu for detailed rendering
-overview: Add a right-click context menu to interval rectangles that allows enabling detailed rendering for a specific (track, interval) pair. The menu will appear when right-clicking on an interval rectangle and will include a "Render detailed" option.
-todos:
-  - id: "1"
-    content: Add detail_render_callback parameter to IntervalRectsItem.__init__ and store as instance variable
-    status: completed
-  - id: "2"
-    content: Modify getContextMenus() to add 'Render detailed' action that uses the callback
-    status: completed
-    dependencies:
-      - "1"
-  - id: "3"
-    content: Add method to handle right-click event and identify clicked rectangle index
-    status: completed
-    dependencies:
-      - "1"
-  - id: "4"
-    content: Update TrackRenderer._update_overview() to create detail rendering callback
-    status: completed
-  - id: "5"
-    content: Pass callback to build_IntervalRectsItem_from_interval_datasource() when creating overview_rects_item
-    status: completed
-    dependencies:
-      - "4"
-  - id: "6"
-    content: Update render_rectangles_helper.py to accept and pass through callback parameter if needed
-    status: completed
+name: ""
+overview: ""
+todos: []
 ---
 
 # Add Context Menu for Detailed Rendering
@@ -49,16 +25,16 @@ Add a right-click context menu to `IntervalRectsItem` that enables detailed rend
 - Modify `getContextMenus()` to add a "Render detailed" action
 - Only show this option if `detail_render_callback` is provided
 - Connect the action to a new method that:
- - Gets the clicked rectangle index from the mouse event position
- - Calls the callback with the rectangle index and data
+- Gets the clicked rectangle index from the mouse event position
+- Calls the callback with the rectangle index and data
 
 ### 3. Update `TrackRenderer` to provide the callback
 
 - **File**: `pypho_timeline/rendering/graphics/track_renderer.py`
 - Modify `_update_overview()` to create a callback function that:
- - Takes `rect_index` and `rect_data`
- - Maps the rectangle index to the corresponding interval in the datasource
- - Calls `_render_detail()` for that specific interval
+- Takes `rect_index` and `rect_data`
+- Maps the rectangle index to the corresponding interval in the datasource
+- Calls `_render_detail()` for that specific interval
 - Pass this callback to `build_IntervalRectsItem_from_interval_datasource()` via `format_tooltip_fn` or a new parameter
 
 ### 4. Handle interval-to-rectangle mapping
