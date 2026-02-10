@@ -51,7 +51,7 @@ from phoofflineeeganalysis.analysis.historical_data import HistoricalData
 
 set_log_level("WARNING")
 
-from enum import Enum, auto
+from phopylslhelper.core.data_modalities import DataModalityType
 
 # import pyxdf
 import mne
@@ -60,29 +60,6 @@ import numpy as np
 
 # from phopylslhelper.general_helpers import unwrap_single_element_listlike_if_needed, readable_dt_str, from_readable_dt_str, localize_datetime_to_timezone, tz_UTC, tz_Eastern, _default_tz
 # from phopylslhelper.easy_time_sync import EasyTimeSyncParsingMixin
-
-
-
-class DataModalityType(Enum):
-    """The various types of datastreams produced by my recorder and analyzed."""
-    EEG = auto()
-    MOTION = auto()
-    PHO_LOG_TO_LSL = auto()
-    WHISPER = auto()
-    # PHO_LOG_TO_LSL = auto()
-
-    def __str__(self):
-        return self.name
-    
-    @classmethod
-    def list_values(cls):
-        """Returns a list of all enum values"""
-        return list(cls)
-
-    @classmethod
-    def list_names(cls):
-        """Returns a list of all enum names"""
-        return [e.name for e in cls]
 
 
 @define(slots=False)

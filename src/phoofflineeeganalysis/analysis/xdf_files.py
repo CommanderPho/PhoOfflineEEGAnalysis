@@ -35,17 +35,9 @@ class XDFDataStreamAccessor(object):
 
     # _required_column_names = ['start', 'stop', 'label', 'duration']
 
-
     def __init__(self, pandas_obj):      
         pandas_obj = self._validate(pandas_obj)
         self._obj = pandas_obj
-        # self._obj = self._obj.sort_values(by=["start"]) # sorts all values in ascending order
-        # Optional: If the 'label' column of the dataframe is empty, should populate it with the index (after sorting) as a string.
-        # # self._obj['label'] = self._obj.index
-        # self._obj["label"] = self._obj["label"].astype("str")
-        # # Optional: Add 'duration' column:
-        # self._obj["duration"] = self._obj["stop"] - self._obj["start"]
-
 
     @classmethod
     def init_from_results(cls, _out_xdf_stream_infos_df: pd.DataFrame, active_only_out_eeg_raws: List, max_num_to_process: Optional[int] = None):
@@ -124,9 +116,8 @@ class XDFDataStreamAccessor(object):
             xdf_stream_infos_df.loc[an_xdf_dataset_idx, 'recording_datetime'] = a_meas_date
             xdf_stream_infos_df.loc[an_xdf_dataset_idx, 'recording_day_date'] = a_meas_day_date
             xdf_stream_infos_df.loc[an_xdf_dataset_idx, 'xdf_dataset_idx'] = an_xdf_dataset_idx
-            
-            
         # end for an_xdf_dat... 
+
         xdf_stream_infos_df[cls.dt_col_names] = xdf_stream_infos_df[cls.dt_col_names].convert_dtypes()
         # xdf_stream_infos_df['created_at_rel'] = ((xdf_stream_infos_df['created_at_dt'] - xdf_stream_infos_df['recording_day_date']) / pd.Timedelta(hours=24.0))
         # xdf_stream_infos_df['first_timestamp']
@@ -149,6 +140,7 @@ class XDFDataStreamAccessor(object):
                 raise
             except Exception as e:
                 raise
+        ## END for a_ts_col_name, a_ts_dt_col_name, a_ts_...
 
         ## try to add the updated duration column
         try:
@@ -417,7 +409,7 @@ class LabRecorderXDF:
 
 
     def perform_process_xdf_streams(self, debug_print: bool=True):
-        """ processes the loaded streams 
+        """ processes the loaded streams without loading the entire data from file.
         
         Updates: 
             self.stream_infos, self.streams_timestamp_dfs
