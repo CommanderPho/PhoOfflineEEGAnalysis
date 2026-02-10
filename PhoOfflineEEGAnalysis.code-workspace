@@ -43,8 +43,9 @@
 			"sideBarSectionHeader.border": "#cecece"
 		},
 		"git.ignoreLimitWarning": true,
-		"python.languageServer": "None",
-		"problems.visibility": false
+		"python.languageServer": "Pylance",
+		"problems.visibility": false,
+		"python.analysis.logLevel": "Trace",
 	},
 	"extensions": {
 		"recommendations": [

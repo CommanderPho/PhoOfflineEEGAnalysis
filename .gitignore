@@ -21,3 +21,4 @@ examples_jupyter/EXTERNAL/LOGGING/timeline_rendering.log
 templating/uv_deps_switcher
 .cursor/debug.log
 viztracer_*.json
+timeline_export.json

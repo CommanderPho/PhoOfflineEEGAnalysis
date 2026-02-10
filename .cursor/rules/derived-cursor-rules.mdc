@@ -14,9 +14,9 @@ This document defines the rules and guidelines for the AI coding assistant in th
 ## FOLDER ORGANIZATION
 
 - `file_metadata.py` and `video_metadata.py` have been moved from `pyPhoTimeline` into `PhoOfflineEEGAnalysis/src/phoofflineeeganalysis/analysis/`, replacing the existing `video_metadata.py` completely.
-- `file_metadata.py`, `video_metadata.py`, and `data_file_metadata.py` may be moved to `PhoPyLSLhelper` in the future to act as common imports for both `phoofflineeeganalysis` and `phopy_timeline`.
+- `file_metadata.py`, `video_metadata.py` and `data_file_metadata.py` may be moved to `PhoPyLSLhelper` in the future to act as common imports for both `phoofflineeeganalysis` and `phopy_timeline`.
 - Moving all file metadata helpers/cachers to `PhoPyLSLhelper` is desired, and the major version should be updated to reflect the new functionality.
-- `file_metadata.py`, `video_metadata.py`, and `data_file_metadata.py` have been moved to `PhoPyLSLhelper/src/phopylslhelper/file_metadata_caching`.
+- `file_metadata.py`, `video_metadata.py` and `data_file_metadata.py` have been moved to `PhoPyLSLhelper/src/phopylslhelper/file_metadata_caching`.
 
 ## TECH STACK
 
@@ -65,6 +65,185 @@ This document defines the rules and guidelines for the AI coding assistant in th
       - If `detailed_df['t']` is timezone-naive:
          - If `t_start`/`t_end` are not `datetime` objects, convert them to `datetime`.
          - If `t_start`/`t_end` are timezone-aware, remove their timezone information (convert to UTC then remove timezone to make it naive).
+- When detail rendering breaks after shifting intervals from relative float timestamp offsets to absolute datetimes, the following steps should be taken:
+  1. **Safe interval formatting helper**: Add a module-level helper function named `_format_interval_for_log(interval: pd.Series) -> str` in `pypho_timeline/rendering/async_detail_fetcher.py` to handle formatting `t_start` and `t_duration` for logging, supporting float, datetime, timedelta, and None types. Example implementation:
+```python
+from datetime import datetime, timedelta
+import pandas as pd
+
+def _format_interval_for_log(interval: pd.Series) -> str:
+    """Safely format interval t_start and t_duration for logging."""
+    try:
+        t_start = interval.get('t_start', None)
+        t_duration = interval.get('t_duration', None)
+        
+        t_start_str = "?"
+        if t_start is not None:
+            if isinstance(t_start, (datetime, pd.Timestamp)):
+                t_start_str = str(t_start)  # Or t_start.isoformat()
+            elif isinstance(t_start, (timedelta, pd.Timedelta)):
+                t_start_str = f"{t_start.total_seconds():.3f}s"
+            elif isinstance(t_start, (int, float)):
+                t_start_str = f"{float(t_start):.3f}"
+            else:
+                t_start_str = repr(t_start)
+                
+        t_duration_str = "?"
+        if t_duration is not None:
+            if isinstance(t_duration, (datetime, pd.Timestamp)):
+                t_duration_str = str(t_duration)  # Or t_duration.isoformat()
+            elif isinstance(t_duration, (timedelta, pd.Timedelta)):
+                t_duration_str = f"{t_duration.total_seconds():.3f}s"
+            elif isinstance(t_duration, (int, float)):
+                t_duration_str = f"{float(t_duration):.3f}"
+            else:
+                t_duration_str = repr(t_duration)
+        
+        return f"t_start={t_start_str}, t_duration={t_duration_str}"
+    except Exception as e:
+        return f"<format error: {e}>"
+```
+  2. **Thread name in log messages**: In `AsyncDetailFetcher` and `DetailFetchWorker`, include the current thread name in debug messages (e.g., via `threading.current_thread().name` in the log message).
+  3. **Update DetailFetchWorker.__init__**: Replace the fragile formatting in `DetailFetchWorker.__init__` (lines 33–36) with the safe formatter function. Use the new formatter to log a single line including the thread name, cache key, and interval values.
+  4. **Strategic log points**: Ensure DEBUG logs exist at these points, using the safe formatter and thread name:
+     - `fetch_detail_async`: After computing `cache_key`, log thread name, `track_id`, `cache_key`, and `_format_interval_for_log(interval)`.
+     - `DetailFetchWorker.run`: Before calling `fetch_detailed_data`, log thread name, `cache_key`, and interval summary (safe format); after return, log whether the result is None or its type/size.
+     - `_process_result_queue`: When an item is dequeued, log thread name, `track_id`, and `cache_key`, and whether there is an `error`.
+     - `_on_worker_finished`: Log thread name, cache store (success/error), and whether a callback or signal is used.
+  5. **Enable logging**: Set the log level to DEBUG for the `pypho_timeline.rendering.async_detail_fetcher` module using `logging.getLogger('pypho_timeline.rendering.async_detail_fetcher').setLevel(logging.DEBUG)` or by calling `configure_logging(log_level=logging.DEBUG)`.
+  6. **View range**: Ensure that the view range is correctly passed to the update viewport method.
+- The root cause of the detail rendering issue may be due to a few factors:
+  - the formatting in DetailFetchWorker.__init__ using .3f which would break for datetime
+  - the default BaseTrackDatasource.get_detail_cache_key not handling datetimes properly
+  - the view range is actually in datetime so get_updated_data_window returns empty or wrong intervals
+  - the detail renderer or plot item expects float x but receives a DataFrame with datetime in the interval row, the rendering could fail or draw nothing
+  - visible_intervals vs cache_key mismatch where one place computes cache_key with float and another with datetime, so cache hits are never retrieved and the detail arrives "for wrong" cache_key.
+- The following fixes should be applied:
+  1. **TrackRenderer (Cause 1 + 4)**: Add or reuse a safe interval/time formatter and use it for all debug logs that format `viewport_start`/`viewport_end` or `t_start`/`t_duration`.
+  2. **BaseTrackDatasource.get_detail_cache_key (Cause 2)**: Make the default implementation support datetime/timedelta.
+  3. **IntervalProvidingTrackDatasource.fetch_detailed_data (Cause 3)**: Normalize `t_duration` to seconds (float) before downsampling math.
+  4. **IntervalPlotDetailRenderer.get_detail_bounds (Cause 5)**: Ensure returned bounds are always floats.
+- A discrepancy exists where calling `track_renderer._render_detail` manually from a notebook returns 14 graphics objects, but using the right-click menu adds 0 graphics objects. This suggests a difference in the execution context or data being passed. Further investigation is needed to determine the root cause.
+- The right-click "Render detailed" functionality is implemented in `pypho_timeline/rendering/graphics/interval_rects_item.py`:
+  - **Mouse Press Event**: The `mousePressEvent` (line 349) handles right-click events.
+  - **Context Menu Creation**: A `QMenu` is created (line 541).
+  - **"Render detailed" Action**: The "Render detailed" action is added to the menu (lines 544-546).
+  - **Action Handler**: The `_on_render_detailed` method (line 622) handles the action when triggered.
+- The `detail_render_callback_fn` callback is defined in `track_renderer.py` (around line 254) and passed when building the `IntervalRectsItem`. The callback is responsible for requesting detail from the async fetcher.
+- When downsampling, the LTTB algorithm implemented in `pypho_timeline/utils/downsampling.py` is used. The `IntervalProvidingTrackDatasource` uses it in `fetch_detailed_data` when:
+  1. `enable_downsampling` is True
+  2. `max_points_per_second` is not None
+  3. `result_df` has rows
+  4. `len(result_df) > max_allowed_points`
+- When using the right-click "Render detailed" functionality and encountering an empty DataFrame from the cache, the following steps can be taken to force a cache recompute from a notebook:
+   1.  **Clear the entire cache:**
+```python
+# Clear all cached detail data
+timeline.async_detail_fetcher.clear_cache()
+```
+   2.  **Clear cache for a specific track only:**
+```python
+# Clear cache for just the EEG track
+timeline.async_detail_fetcher.clear_cache(track_id='EEG_Epoc X')
+```
+   3.  **Check cache stats before/after:**
+```python
+# See what's in the cache
+stats = timeline.async_detail_fetcher.get_cache_stats()
+print(f"Cache size: {stats['size']}, Pending: {stats['pending']}")
+```
+
+If you're still seeing an **empty DataFrame** from the cache, it could mean:
+
+1. **The cache actually stored an empty result** — if `fetch_detailed_data()` returned an empty DataFrame when it was first computed (e.g., the time-slicing mask matched nothing, or there was no `detailed_df` at all)
+2. **Something failed during the fetch** — check for errors in the logs or the worker result
+
+To debug, you could also directly test the datasource:
+
+```python
+# Get a specific interval
+interval = timeline.track_datasources['EEG_Epoc X'].intervals_df.iloc[0]
+
+# Manually call fetch_detailed_data to see what it returns
+result = timeline.track_datasources['EEG_Epoc X'].fetch_detailed_data(interval)
+print(f"Result shape: {result.shape}")
+print(result.head())
+```
+
+This will tell you if the problem is in the caching layer or in the actual data fetching logic. The "cached" data is not the full `detailed_df`, but rather:
+
+1. A **time-sliced subset** of detailed_df for that specific interval
+2. Potentially **downsampled** based on max_points_per_second
+
+- The time-slicing mask logic is in `fetch_detailed_data()` of `IntervalProvidingTrackDatasource`. To debug issues where the mask returns no matches, perform the following checks:
+
+1. **Verify the Filtering Mask (line 594):**
+```python
+mask = (self.detailed_df['t'] >= t_start) & (self.detailed_df['t'] < t_end)
+```
+2. **Check the types and sample values:** Use the following code in your notebook to verify the types and values of the involved variables:
+```python
+# Get the datasource and an interval
+ds = timeline.track_datasources['EEG_Epoc X']
+interval = ds.intervals_df.iloc[0]
+
+# Check the types
+print("=== Interval ===")
+print(f"t_start: {interval['t_start']} (type: {type(interval['t_start'])})")
+print(f"t_duration: {interval['t_duration']} (type: {type(interval['t_duration'])})")
+
+print("\n=== intervals_df.t_start dtype ===")
+print(f"intervals_df['t_start'].dtype: {ds.intervals_df['t_start'].dtype}")
+print(f"Is datetime? {pd.api.types.is_datetime64_any_dtype(ds.intervals_df['t_start'])}")
+
+print("\n=== detailed_df.t dtype ===")
+print(f"detailed_df['t'].dtype: {ds.detailed_df['t'].dtype}")
+print(f"Is datetime? {pd.api.types.is_datetime64_any_dtype(ds.detailed_df['t'])}")
+
+# Check sample values
+print(f"\nSample detailed_df['t'].iloc[0]: {ds.detailed_df['t'].iloc[0]} (type: {type(ds.detailed_df['t'].iloc[0])})")
+print(f"Sample detailed_df['t'].iloc[-1]: {ds.detailed_df['t'].iloc[-1]}")
+
+# Check timezone info
+if hasattr(ds.detailed_df['t'].dtype, 'tz'):
+    print(f"detailed_df['t'] timezone: {ds.detailed_df['t'].dtype.tz}")
+```
+
+3.  **Trace through the conversion:**
+```python
+# Manually step through what fetch_detailed_data does
+t_start = interval['t_start']
+intervals_is_datetime = pd.api.types.is_datetime64_any_dtype(ds.intervals_df['t_start'])
+detailed_is_datetime = pd.api.types.is_datetime64_any_dtype(ds.detailed_df['t'])
+
+print(f"\nintervals_is_datetime: {intervals_is_datetime}")
+print(f"detailed_is_datetime: {detailed_is_datetime}")
+
+# Calculate t_end (lines 502-506)
+if intervals_is_datetime:
+    t_end = t_start + pd.to_timedelta(interval['t_duration'], unit='s')
+else:
+    t_end = t_start + interval['t_duration']
+
+print(f"\nBefore conversion:")
+print(f"t_start: {t_start} (type: {type(t_start)})")
+print(f"t_end: {t_end} (type: {type(t_end)})")
+
+# Then check what the actual range of detailed_df is
+print(f"\ndetailed_df time range:")
+print(f"Min: {ds.detailed_df['t'].min()}")
+print(f"Max: {ds.detailed_df['t'].max()}")
+
+# Try the mask
+mask = (ds.detailed_df['t'] >= t_start) & (ds.detailed_df['t'] < t_end)
+print(f"\nMask matches: {mask.sum()} / {len(mask)}")
+```
+4.  **Check for common issues**:
+    - `intervals_df['t_start']` is float but `detailed_df['t']` is datetime (or vice versa)
+    - Timezone mismatch: one is UTC-aware, the other is naive
+    - The conversion logic at lines 510-582 is going down the wrong branch
+
+By stepping through the logic and checking types, you should be able to pinpoint the source of the time filtering bug.
 
 ## FINAL DOs AND DON'Ts
 
@@ -348,253 +527,3 @@ if newest_xdf_filename:
 # If not found, try to get from raw.info.description
 if newest_xdf_file_path is None:
     desc = newest_eeg_raw.info.get('description', None)
-    if desc:
-        newest_xdf_file_path = Path(desc)
-
-print(f"Newest EEG Dataset Info:")
-print(f"  Dataset Index: {newest_dataset_idx}")
-print(f"  Recording Date: {newest_eeg_raw.info.get('meas_date', 'N/A')}")
-print(f"  Duration: {newest_eeg_raw.times[-1]:.2f} seconds" if len(newest_eeg_raw.times) > 0 else "  Duration: N/A")
-print(f"  Channels: {len(newest_eeg_raw.info['ch_names'])}")
-print(f"  Source File: {newest_xdf_file_path}")
-
-# ===================================================================================
-# Step 3: Prepare Airtable credentials
-# ===================================================================================
-# Set your Airtable credentials (you may want to use environment variables or a config file)
-AIRTABLE_API_KEY = "your_airtable_api_key_here"  # Get from https://airtable.com/api
-AIRTABLE_BASE_ID = "appXXXXXXXXXXXXXX"  # Get from your Airtable base URL
-AIRTABLE_TABLE_NAME = "EEG Recordings"  # Name of your table in Airtable
-
-# ===================================================================================
-# Step 4: Prepare additional fields from stream info
-# ===================================================================================
-additional_fields = {
-    'XDF Filename': newest_stream_info.get('xdf_filename', None),
-    'Stream Name': newest_stream_info.get('name', None),
-    'Stream Type': newest_stream_info.get('type', None),
-    'Sampling Rate (Hz)': newest_stream_info.get('fs', None),
-    'Number of Samples': newest_stream_info.get('n_samples', None),
-    'Recording Day Date': newest_stream_info.get('recording_day_date', None),
-    'Duration (seconds)': newest_stream_info.get('duration_sec', None),
-    'Source ID': newest_stream_info.get('source_id', None),
-    'Hostname': newest_stream_info.get('hostname', None),
-    'Device Key': newest_stream_info.get('eeg_device_key', None),
-    'Number of Segments': newest_stream_info.get('n_eeg_segments_in_group', None),
-}
-
-# Remove None values
-additional_fields = {k: v for k, v in additional_fields.items() if v is not None}
-
-# Convert datetime/timedelta objects to strings if needed
-for key, value in additional_fields.items():
-    if hasattr(value, 'isoformat'):
-        additional_fields[key] = value.isoformat()
-    elif hasattr(value, 'total_seconds'):
-        additional_fields[key] = value.total_seconds()
-
-# ===================================================================================
-# Step 5: Export to Airtable
-# ===================================================================================
-print(f"\nExporting to Airtable...")
-print(f"  Base ID: {AIRTABLE_BASE_ID}")
-print(f"  Table: {AIRTABLE_TABLE_NAME}")
-
-result = export_eeg_dataset_to_airtable(
-    raw=newest_eeg_raw,
-    airtable_base_id=AIRTABLE_BASE_ID,
-    airtable_table_name=AIRTABLE_TABLE_NAME,
-    airtable_api_key=AIRTABLE_API_KEY,
-    xdf_file_path=newest_xdf_file_path,
-    additional_fields=additional_fields
-)
-
-# ===================================================================================
-# Step 6: Display results
-# ===================================================================================
-if result['success']:
-    print(f"\n✅ Successfully exported to Airtable!")
-    print(f"  Record ID: {result['record_id']}")
-    print(f"  Fields created: {list(result['fields'].keys())}")
-    
-    # Display some key fields
-    print(f"\nKey exported fields:")
-    key_fields = ['Recording Date', 'File Name', 'Number of Channels', 
-                  'Sampling Rate (Hz)', 'Duration (seconds)', 'Stream Name']
-    for field_name in key_fields:
-        if field_name in result['fields']:
-            print(f"  {field_name}: {result['fields'][field_name]}")
-else:
-    print(f"\n❌ Export failed!")
-    print(f"  Error: {result.get('error', 'Unknown error')}")
-
-# ===================================================================================
-# Optional: Export multiple newest datasets (e.g., last 5)
-# ===================================================================================
-# If you want to export the last N newest datasets:
-"""
-from phopymnehelper.exporters.AiirTable_Exporter import export_multiple_eeg_datasets_to_airtable
-
-# Get last 5 newest datasets
-n_newest = 5
-newest_raws = _out_eeg_raw[-n_newest:]
-newest_indices = _out_xdf_stream_infos_df['xdf_dataset_idx'].nlargest(n_newest).tolist()
-newest_xdf_paths = []
-
-for idx in newest_indices:
-    stream_info = _out_xdf_stream_infos_df[_out_xdf_stream_infos_df['xdf_dataset_idx'] == idx].iloc[0]
-    xdf_filename = stream_info.get('xdf_filename', None)
-    if xdf_filename:
-        for xdf_file in lab_recorder_xdf_files:
-            if xdf_file.name == xdf_filename:
-                newest_xdf_paths.append(xdf_file)
-                break
-
-# Export all
-results = export_multiple_eeg_datasets_to_airtable(
-    raws=newest_raws,
-    airtable_base_id=AIRTABLE_BASE_ID,
-    airtable_table_name=AIRTABLE_TABLE_NAME,
-    airtable_api_key=AIRTABLE_API_KEY,
-    xdf_file_paths=newest_xdf_paths
-)
-
-# Check results
-successful = sum(1 for r in results if r['success'])
-print(f"Successfully exported {successful}/{len(results)} datasets")
-"""
-```
-- To export to JSON from the loaded datasource, after the timeline is built and all details are loaded, you can export directly using the original `_out_eeg_raw` and `_out_xdf_stream_infos_df` variables:
-
-```python
-# After timeline is built and all details are loaded, you can export directly:
-
-from phopymnehelper.exporters.JSON_Exporter import export_xdf_data_to_json
-from pathlib import Path
-
-# The original _out_eeg_raw and _out_xdf_stream_infos_df are still available
-# (they were used to build the timeline)
-
-output_path = Path("eeg_export.json")
-export_xdf_data_to_json(
-    eeg_raws=_out_eeg_raw,  # Original Raw objects with all metadata
-    stream_infos_df=_out_xdf_stream_infos_df,  # Original stream info
-    output_path=output_path,
-    include_raw_data=True,
-    max_samples_per_stream=10000  # Optional: limit for large files
-)
-```
-- If you are building the timeline using `build_from_xdf_files()` and do not have access to the original `_out_eeg_raw` and `_out_xdf_stream_infos_df` variables, use the following function to export data from the timeline's datasources.
-
-```python
-# Add this to your notebook or create as a helper function
-
-from phopymnehelper.exporters.JSON_Exporter import _convert_to_json_serializable
-from pathlib import Path
-from datetime import datetime, timezone
-import pandas as pd
-import json
-from typing import Dict, Any, List, Optional
-
-def export_timeline_to_json(timeline, output_path: Path, include_raw_data: bool = True, 
-                            max_samples_per_stream: Optional[int] = None) -> Path:
-    """
-    Export timeline datasources to JSON format compatible with JSON_Exporter.
-    
-    This extracts data from the timeline's datasources (which contain processed
-    DataFrames) rather than requiring the original MNE Raw objects.
-    
-    Args:
-        timeline: SimpleTimelineWidget instance with loaded datasources
-        output_path: Path where JSON file will be saved
-        include_raw_data: Whether to include raw time-series data (default: True)
-        max_samples_per_stream: Optional maximum number of samples per stream
-        
-    Returns:
-        Path to the created JSON file
-        
-    Usage:
-        from pathlib import Path
-        
-        # After timeline is built and all details are loaded
-        output_path = Path("timeline_export.json")
-        export_timeline_to_json(timeline, output_path)
-    """
-    if not hasattr(timeline, 'track_datasources'):
-        raise ValueError("Timeline does not have track_datasources attribute")
-    
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Collect all EEG datasources
-    eeg_datasources = []
-    for track_name, datasource in timeline.track_datasources.items():
-        # Check if this is an EEG datasource (has EEG channel data)
-        if hasattr(datasource, 'detailed_df') and datasource.detailed_df is not None:
-            detailed_df = datasource.detailed_df
-            # Check if it has EEG-like channel columns
-            eeg_channels = ['AF3', 'F7', 'F3', 'FC5', 'T7', 'P7', 'O1', 'O2', 
-                          'P8', 'T8', 'FC6', 'F4', 'F8', 'AF4']
-            has_eeg_channels = any(ch in detailed_df.columns for ch in eeg_channels)
-            if has_eeg_channels and 't' in detailed_df.columns:
-                eeg_datasources.append((track_name, datasource))
-    
-    if not eeg_datasources:
-        raise ValueError("No EEG datasources found in timeline")
-    
-    # Build top-level metadata
-    export_date = datetime.now(timezone.utc)
-    total_duration = 0.0
-    
-    # Process each EEG datasource
-    streams_data = []
-    
-    for stream_idx, (track_name, datasource) in enumerate(eeg_datasources):
-        try:
-            intervals_df = datasource.intervals_df
-            detailed_df = datasource.detailed_df
-            
-            # Calculate duration from intervals
-            if not intervals_df.empty and 't_duration' in intervals_df.columns:
-                stream_duration = intervals_df['t_duration'].sum()
-            elif 't' in detailed_df.columns and len(detailed_df) > 1:
-                t_min = detailed_df['t'].min()
-                t_max = detailed_df['t'].max()
-                if isinstance(t_min, (datetime, pd.Timestamp)) and isinstance(t_max, (datetime, pd.Timestamp)):
-                    stream_duration = (t_max - t_min).total_seconds()
-                else:
-                    stream_duration = float(t_max - t_min)
-            else:
-                stream_duration = 0.0
-            
-            total_duration += stream_duration
-            
-            # Extract metadata from intervals and detailed data
-            file_info = {
-                'track_name': track_name,
-                'datasource_name': datasource.custom_datasource_name,
-            }
-            
-            # Get recording datetime from intervals
-            if not intervals_df.empty and 't_start' in intervals_df.columns:
-                t_start = intervals_df['t_start'].iloc[0]
-                if isinstance(t_start, (datetime, pd.Timestamp)):
-                    file_info['recording_datetime'] = t_start
-                elif isinstance(t_start, (float, int)):
-                    # Assume Unix timestamp
-                    file_info['recording_datetime'] = datetime.fromtimestamp(t_start, tz=timezone.utc)
-            
-            # Extract channel information from detailed_df
-            eeg_channels = [col for col in detailed_df.columns if col != 't']
-            ch_types = ['eeg'] * len(eeg_channels)
-            
-            # Estimate sampling rate from time differences
-            sfreq = None
-            if 't' in detailed_df.columns and len(detailed_df) > 1:
-                time_diffs = detailed_df['t'].diff().dropna()
-                if len(time_diffs) > 0:
-                    # Check if time_diffs contains Timedelta objects (from datetime diff)
-                    first_diff = time_diffs.iloc[0]
-                    if isinstance(first_diff, pd.Timedelta):
-                        # Convert all Timedelta objects to seconds
-                        avg_diff = time_diffs.apply(lambda x: x
