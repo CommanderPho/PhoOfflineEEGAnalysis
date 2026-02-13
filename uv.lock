@@ -5613,7 +5613,7 @@ trial = [
 
 [[package]]
 name = "phopylslhelper"
-version = "1.1.0"
+version = "1.1.1"
 source = { editable = "../PhoPyLSLhelper" }
 dependencies = [
     { name = "attrs", marker = "(platform_machine == 'x86_64' and sys_platform == 'darwin') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32')" },
@@ -5624,7 +5624,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "attrs", specifier = ">=22.2.0,<23" },
+    { name = "attrs", specifier = ">=22.2.0" },
     { name = "opencv-python", marker = "extra == 'video'", specifier = ">=4.5.0" },
     { name = "pandas", specifier = ">=1.5.3,<3.0.0" },
     { name = "pylsl", specifier = ">=1.16.2" },
