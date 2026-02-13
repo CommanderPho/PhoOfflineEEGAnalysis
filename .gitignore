@@ -22,3 +22,4 @@ templating/uv_deps_switcher
 .cursor/debug.log
 viztracer_*.json
 timeline_export.json
+rerun/EXAMPLES
