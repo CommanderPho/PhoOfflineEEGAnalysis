@@ -17,6 +17,12 @@
 		},
 		{
 			"path": "../uv-deps-switcher"
+		},
+		{
+			"path": "../phoRerunTesting"
+		},
+		{
+			"path": "../python_xdf_streamer"
 		}
 	],
 	"settings": {

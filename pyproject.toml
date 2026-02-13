@@ -79,6 +79,8 @@ dependencies = [
     "opencv-python>=4.8.0",
     "phopymnehelper",
     "py-pho-timeline",
+    "rerun-notebook>=0.29.2",
+    # "rerun-sdk==0.29.2",
 ]
 
 [project.scripts]
@@ -89,6 +91,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv]
+# Only resolve for x86_64 (exclude ARM64 / aarch64) so lock and sync succeed.
+environments = [
+    "sys_platform == 'win32' and platform_machine == 'AMD64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+]
+
 [tool.uv.sources]
 # WARNING: Dev mne requires numpy>=1.26, which conflicts with pyphocorehelpers (numpy<1.24)
 # This will cause resolution failures on darwin, but may work on Windows
@@ -102,6 +111,9 @@ py-pho-timeline = { path = "../pyPhoTimeline", editable = true }
 debug = [
     "viztracer>=1.1.1",
 ]
+# testing = [
+#     "rerun-sdk>=0.6.0",
+# ]
 trial = [
     "opentimelineio>=0.18.1",
     "opentimelineio-plugins>=0.18.1",
