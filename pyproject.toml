@@ -82,6 +82,7 @@ dependencies = [
     "deffcode>=0.2.6",
     "dxcam>=0.0.5",
     "vidgear[asyncio]>=0.3.3",
+    "imageio>=2.37.2",
 ]
 
 [project.scripts]
