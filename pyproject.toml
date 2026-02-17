@@ -79,6 +79,9 @@ dependencies = [
     "opencv-python>=4.8.0",
     "phopymnehelper",
     "py-pho-timeline",
+    "deffcode>=0.2.6",
+    "dxcam>=0.0.5",
+    "vidgear[asyncio]>=0.3.3",
 ]
 
 [project.scripts]
