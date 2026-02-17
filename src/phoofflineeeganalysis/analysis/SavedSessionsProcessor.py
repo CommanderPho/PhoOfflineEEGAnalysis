@@ -113,13 +113,13 @@ class SavedSessionsProcessor:
     sso
 
     """
-    eeg_recordings_file_path: Path = field(default=Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/EmotivEpocX_EEGRecordings/fif').resolve())
-    headset_motion_recordings_file_path: Path = field(default=Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/EmotivEpocX_EEGRecordings/MOTION_RECORDINGS/fif').resolve())
-    WhisperVideoTranscripts_LSL_Converted_file_path: Path = field(default=Path(r"E:/Dropbox (Personal)/Databases/UnparsedData/WhisperVideoTranscripts_LSL_Converted").resolve())
-    pho_log_to_LSL_recordings_path: Path = field(default=Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/PhoLogToLabStreamingLayer_logs').resolve())
+    eeg_recordings_file_path: Path = field(default=Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/EmotivEpocX_EEGRecordings/fif'))
+    headset_motion_recordings_file_path: Path = field(default=Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/EmotivEpocX_EEGRecordings/MOTION_RECORDINGS/fif'))
+    WhisperVideoTranscripts_LSL_Converted_file_path: Path = field(default=Path(r"E:/Dropbox (Personal)/Databases/UnparsedData/WhisperVideoTranscripts_LSL_Converted"))
+    pho_log_to_LSL_recordings_path: Path = field(default=Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/PhoLogToLabStreamingLayer_logs'))
     ## These contain little LSL .fif files with names like: '20250808_062814_log.fif', 
 
-    eeg_analyzed_parent_export_path: Path = field(default=Path("E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed").resolve())
+    eeg_analyzed_parent_export_path: Path = field(default=Path("E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed"))
 
     # n_most_recent_sessions_to_preprocess: int = None # None means all sessions
     n_most_recent_sessions_to_preprocess: int = field(default=10) #
@@ -385,7 +385,7 @@ class SavedSessionsProcessor:
     def load(cls, pkl_file: Path = Path(r"E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/PICKLED_COLLECTION/records_SSO_all.pkl")) -> "SavedSessionsProcessor":
         """ un-Pickles the object 
         
-        sso: SavedSessionsProcessor = SavedSessionsProcessor.load(pkl_file=Path(r"E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/PICKLED_COLLECTION/2025-09-02_50records_SSO_all.pkl").resolve())
+        sso: SavedSessionsProcessor = SavedSessionsProcessor.load(pkl_file=Path(r"E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/PICKLED_COLLECTION/2025-09-02_50records_SSO_all.pkl")
         """
         assert pkl_file.exists(), f"'{pkl_file.as_posix()}' must exist!"
         assert pkl_file.exists(), f"'{pkl_file.is_file()}' must be a pickle file!"
