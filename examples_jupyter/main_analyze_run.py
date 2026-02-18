@@ -474,6 +474,61 @@ def _extract_session_aux_for_export(a_raw, session_aux_data: Optional[Dict]) -> 
     return out
 
 
+_EXPORT_MAX_WORKERS = 3
+
+
+def _export_num_workers() -> int:
+    """Number of workers for export thread pool: at most _EXPORT_MAX_WORKERS, and at most CPU count."""
+    n_cpu = os.cpu_count()
+    if n_cpu is None or n_cpu < 1:
+        n_cpu = 1
+    return min(n_cpu, _EXPORT_MAX_WORKERS)
+
+
+def _payload_task(args):
+    return _compute_session_export_payload(*args)
+
+
+def _compute_session_export_payload(idx: int, a_raw, a_result, session_aux_data: Optional[Dict], freq_min: float, freq_max: float, xdf_filename: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Compute one session's spectrogram and optional aux data for export. Returns payload dict or None if skipped."""
+    try:
+        if a_result is None or "spectogram" not in a_result:
+            return None
+        meas_date = a_raw.info.get("meas_date")
+        if meas_date is None:
+            meas_date_sec = float("nan")
+            meas_date_iso = ""
+        else:
+            if getattr(meas_date, "tzinfo", None) is None:
+                meas_date = meas_date.replace(tzinfo=timezone.utc)
+            meas_date_sec = meas_date.timestamp()
+            meas_date_iso = meas_date.isoformat()
+        spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
+        channel_names = list(spectogram_result_dict.keys())
+        f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
+        freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
+        freqs = np.asarray(f0)[freq_mask]
+        times = np.asarray(t0)
+        Sxx_list = []
+        for ch_name in channel_names:
+            f, t, Sxx = spectogram_result_dict[ch_name]
+            Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
+        Sxx_stack = np.stack(Sxx_list, axis=0)
+        try:
+            duration_s = float(a_raw.times[-1] - a_raw.times[0]) if a_raw.times.size > 0 else float("nan")
+        except Exception:
+            duration_s = float("nan")
+        sfreq_hz = float(a_raw.info.get("sfreq", float("nan")))
+        n_channels = len(channel_names)
+        payload: Dict[str, Any] = {"idx": idx, "channel_names": channel_names, "freqs": freqs, "times": times, "spectrogram": Sxx_stack, "meas_date_sec": meas_date_sec, "meas_date_iso": meas_date_iso, "duration_s": duration_s, "sfreq_hz": sfreq_hz, "n_channels": n_channels, "xdf_filename": str(xdf_filename) if xdf_filename is not None else ""}
+        if session_aux_data is not None:
+            payload["_aux"] = _extract_session_aux_for_export(a_raw, session_aux_data)
+        return payload
+    except Exception as e:
+        print(f"  WARN: _compute_session_export_payload skipped session {idx}: {e}")
+        return None
+
+
 def export_spectrograms_for_rerun(active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0, session_aux_data_list: Optional[List[Dict]] = None) -> Path:
     """
     Export spectrograms and session datetimes to a NumPy .npz file for later viewing in Rerun (e.g. via view_spectrograms_rerun.py).
@@ -486,54 +541,38 @@ def export_spectrograms_for_rerun(active_only_out_eeg_raws, results, output_path
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     use_aux = session_aux_data_list is not None and len(session_aux_data_list) == len(active_only_out_eeg_raws)
+    task_args = [(idx, a_raw, a_result, session_aux_data_list[idx] if use_aux else None, freq_min, freq_max, None) for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results))]
+    payloads: List[Dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=_export_num_workers()) as executor:
+        for p in executor.map(_payload_task, task_args):
+            if p is not None:
+                payloads.append(p)
+    payloads.sort(key=lambda x: x["idx"])
     export_dict = {"freq_min": np.array(freq_min), "freq_max": np.array(freq_max)}
     session_indices = []
-    for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
-        try:
-            if a_result is None or "spectogram" not in a_result:
-                continue
-            meas_date = a_raw.info.get("meas_date")
-            if meas_date is None:
-                meas_date_sec = float("nan")
-            else:
-                if getattr(meas_date, "tzinfo", None) is None:
-                    meas_date = meas_date.replace(tzinfo=timezone.utc)
-                meas_date_sec = meas_date.timestamp()
-            spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
-            channel_names = np.array(list(spectogram_result_dict.keys()), dtype=object)
-            f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
-            freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
-            freqs = np.asarray(f0)[freq_mask]
-            times = np.asarray(t0)
-            Sxx_list = []
-            for ch_name in channel_names:
-                f, t, Sxx = spectogram_result_dict[ch_name]
-                Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
-            Sxx_stack = np.stack(Sxx_list, axis=0)
-            export_dict[f"s{idx}_meas_date_sec"] = np.array(meas_date_sec)
-            export_dict[f"s{idx}_channel_names"] = channel_names
-            export_dict[f"s{idx}_freqs"] = freqs
-            export_dict[f"s{idx}_times"] = times
-            export_dict[f"s{idx}_Sxx"] = Sxx_stack
-            if use_aux:
-                aux = _extract_session_aux_for_export(a_raw, session_aux_data_list[idx])
-                if "eeg_data" in aux:
-                    export_dict[f"s{idx}_eeg_data"] = aux["eeg_data"]
-                    export_dict[f"s{idx}_eeg_times"] = aux["eeg_times"]
-                    export_dict[f"s{idx}_eeg_channel_names"] = np.array(aux["eeg_channel_names"], dtype=object)
-                if "motion_data" in aux:
-                    export_dict[f"s{idx}_motion_data"] = aux["motion_data"]
-                    export_dict[f"s{idx}_motion_times"] = aux["motion_times"]
-                    export_dict[f"s{idx}_motion_ch_names"] = np.array(aux["motion_ch_names"], dtype=object)
-                    export_dict[f"s{idx}_motion_meas_date_sec"] = np.array(aux.get("motion_meas_date_sec", float("nan")))
-                if "text_onset" in aux:
-                    export_dict[f"s{idx}_text_onset"] = aux["text_onset"]
-                    export_dict[f"s{idx}_text_description"] = aux["text_description"]
-                    export_dict[f"s{idx}_text_orig_time_sec"] = np.array(aux.get("text_orig_time_sec", float("nan")))
-            session_indices.append(idx)
-        except Exception as e:
-            print(f"  WARN: export_spectrograms_for_rerun skipped session {idx}: {e}")
-            continue
+    for p in payloads:
+        idx = p["idx"]
+        export_dict[f"s{idx}_meas_date_sec"] = np.array(p["meas_date_sec"])
+        export_dict[f"s{idx}_channel_names"] = np.array(p["channel_names"], dtype=object)
+        export_dict[f"s{idx}_freqs"] = p["freqs"]
+        export_dict[f"s{idx}_times"] = p["times"]
+        export_dict[f"s{idx}_Sxx"] = p["spectrogram"]
+        aux = p.get("_aux")
+        if aux:
+            if "eeg_data" in aux:
+                export_dict[f"s{idx}_eeg_data"] = aux["eeg_data"]
+                export_dict[f"s{idx}_eeg_times"] = aux["eeg_times"]
+                export_dict[f"s{idx}_eeg_channel_names"] = np.array(aux["eeg_channel_names"], dtype=object)
+            if "motion_data" in aux:
+                export_dict[f"s{idx}_motion_data"] = aux["motion_data"]
+                export_dict[f"s{idx}_motion_times"] = aux["motion_times"]
+                export_dict[f"s{idx}_motion_ch_names"] = np.array(aux["motion_ch_names"], dtype=object)
+                export_dict[f"s{idx}_motion_meas_date_sec"] = np.array(aux.get("motion_meas_date_sec", float("nan")))
+            if "text_onset" in aux:
+                export_dict[f"s{idx}_text_onset"] = aux["text_onset"]
+                export_dict[f"s{idx}_text_description"] = aux["text_description"]
+                export_dict[f"s{idx}_text_orig_time_sec"] = np.array(aux.get("text_orig_time_sec", float("nan")))
+        session_indices.append(idx)
     export_dict["session_indices"] = np.array(session_indices)
     np.savez_compressed(output_path, **export_dict)
     print(f"Exported spectrograms for Rerun to: {output_path.as_posix()}")
@@ -561,82 +600,56 @@ def export_spectrograms_hdf5(active_only_out_eeg_raws, results, output_path: Pat
                     dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
         except Exception as e:
             print(f"  WARN: export_spectrograms_hdf5 failed to derive dataset -> filename mapping: {e}")
-    session_indices: List[int] = []
     use_aux = session_aux_data_list is not None and len(session_aux_data_list) == len(active_only_out_eeg_raws)
+    task_args = [(idx, a_raw, a_result, session_aux_data_list[idx] if use_aux else None, freq_min, freq_max, dataset_to_filename.get(idx)) for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results))]
+    payloads = []
+    with ThreadPoolExecutor(max_workers=_export_num_workers()) as executor:
+        for p in executor.map(_payload_task, task_args):
+            if p is not None:
+                payloads.append(p)
+    payloads.sort(key=lambda x: x["idx"])
     with h5py.File(output_path, "w") as f:
         f.attrs["format_version"] = "1.0"
         f.attrs["freq_min"] = float(freq_min)
         f.attrs["freq_max"] = float(freq_max)
         sessions_grp = f.create_group("sessions")
         dt_str = h5py.special_dtype(vlen=str)
-        for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
-            try:
-                if a_result is None or "spectogram" not in a_result:
-                    continue
-                meas_date = a_raw.info.get("meas_date")
-                if meas_date is None:
-                    meas_date_sec = float("nan")
-                    meas_date_iso = ""
-                else:
-                    if getattr(meas_date, "tzinfo", None) is None:
-                        meas_date = meas_date.replace(tzinfo=timezone.utc)
-                    meas_date_sec = meas_date.timestamp()
-                    meas_date_iso = meas_date.isoformat()
-                spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
-                channel_names = list(spectogram_result_dict.keys())
-                f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
-                freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
-                freqs = np.asarray(f0)[freq_mask]
-                times = np.asarray(t0)
-                Sxx_list = []
-                for ch_name in channel_names:
-                    f, t, Sxx = spectogram_result_dict[ch_name]
-                    Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
-                Sxx_stack = np.stack(Sxx_list, axis=0)
-                try:
-                    duration_s = float(a_raw.times[-1] - a_raw.times[0]) if a_raw.times.size > 0 else float("nan")
-                except Exception:
-                    duration_s = float("nan")
-                sfreq_hz = float(a_raw.info.get("sfreq", float("nan")))
-                n_channels = len(channel_names)
-                sgrp = sessions_grp.create_group(f"session_{idx:03d}")
-                sgrp.create_dataset("freqs", data=freqs, dtype=np.float64)
-                sgrp.create_dataset("times", data=times, dtype=np.float64)
-                ch_dset = sgrp.create_dataset("channel_names", (len(channel_names),), dtype=dt_str)
-                ch_dset[:] = channel_names
-                sgrp.create_dataset("spectrogram", data=Sxx_stack, dtype=np.float64)
-                sgrp.attrs["meas_date_iso"] = meas_date_iso
-                sgrp.attrs["meas_date_sec"] = meas_date_sec
-                sgrp.attrs["sfreq_hz"] = sfreq_hz
-                sgrp.attrs["duration_s"] = duration_s
-                sgrp.attrs["n_channels"] = n_channels
-                if use_aux:
-                    aux = _extract_session_aux_for_export(a_raw, session_aux_data_list[idx])
-                    if "eeg_data" in aux:
-                        sgrp.create_dataset("eeg_raw", data=aux["eeg_data"], dtype=np.float64)
-                        sgrp.create_dataset("eeg_times", data=aux["eeg_times"], dtype=np.float64)
-                        sgrp.attrs["eeg_meas_date_iso"] = datetime.fromtimestamp(aux["eeg_meas_date_sec"], tz=timezone.utc).isoformat() if np.isfinite(aux["eeg_meas_date_sec"]) else ""
-                    if "motion_data" in aux:
-                        sgrp.create_dataset("motion_raw", data=aux["motion_data"], dtype=np.float64)
-                        sgrp.create_dataset("motion_times", data=aux["motion_times"], dtype=np.float64)
-                        motion_ch = aux["motion_ch_names"]
-                        mch_dset = sgrp.create_dataset("motion_ch_names", (len(motion_ch),), dtype=dt_str)
-                        mch_dset[:] = motion_ch
-                        sgrp.attrs["motion_meas_date_iso"] = datetime.fromtimestamp(aux.get("motion_meas_date_sec", float("nan")), tz=timezone.utc).isoformat() if np.isfinite(aux.get("motion_meas_date_sec", float("nan"))) else ""
-                    if "text_onset" in aux:
-                        sgrp.create_dataset("text_onset", data=aux["text_onset"], dtype=np.float64)
-                        text_desc = aux["text_description"]
-                        td_dset = sgrp.create_dataset("text_description", (len(text_desc),), dtype=dt_str)
-                        td_dset[:] = [str(x) for x in text_desc]
-                        sgrp.attrs["text_orig_time_iso"] = datetime.fromtimestamp(aux.get("text_orig_time_sec", float("nan")), tz=timezone.utc).isoformat() if np.isfinite(aux.get("text_orig_time_sec", float("nan"))) else ""
-                xdf_filename = dataset_to_filename.get(idx)
-                if xdf_filename is not None:
-                    sgrp.attrs["xdf_filename"] = str(xdf_filename)
-                session_indices.append(idx)
-            except Exception as e:
-                print(f"  WARN: export_spectrograms_hdf5 skipped session {idx}: {e}")
-                continue
-        f.attrs["n_sessions"] = len(session_indices)
+        for p in payloads:
+            idx = p["idx"]
+            channel_names = p["channel_names"]
+            sgrp = sessions_grp.create_group(f"session_{idx:03d}")
+            sgrp.create_dataset("freqs", data=p["freqs"], dtype=np.float64)
+            sgrp.create_dataset("times", data=p["times"], dtype=np.float64)
+            ch_dset = sgrp.create_dataset("channel_names", (len(channel_names),), dtype=dt_str)
+            ch_dset[:] = channel_names
+            sgrp.create_dataset("spectrogram", data=p["spectrogram"], dtype=np.float64)
+            sgrp.attrs["meas_date_iso"] = p["meas_date_iso"]
+            sgrp.attrs["meas_date_sec"] = p["meas_date_sec"]
+            sgrp.attrs["sfreq_hz"] = p["sfreq_hz"]
+            sgrp.attrs["duration_s"] = p["duration_s"]
+            sgrp.attrs["n_channels"] = p["n_channels"]
+            aux = p.get("_aux")
+            if aux:
+                if "eeg_data" in aux:
+                    sgrp.create_dataset("eeg_raw", data=aux["eeg_data"], dtype=np.float64)
+                    sgrp.create_dataset("eeg_times", data=aux["eeg_times"], dtype=np.float64)
+                    sgrp.attrs["eeg_meas_date_iso"] = datetime.fromtimestamp(aux["eeg_meas_date_sec"], tz=timezone.utc).isoformat() if np.isfinite(aux["eeg_meas_date_sec"]) else ""
+                if "motion_data" in aux:
+                    sgrp.create_dataset("motion_raw", data=aux["motion_data"], dtype=np.float64)
+                    sgrp.create_dataset("motion_times", data=aux["motion_times"], dtype=np.float64)
+                    motion_ch = aux["motion_ch_names"]
+                    mch_dset = sgrp.create_dataset("motion_ch_names", (len(motion_ch),), dtype=dt_str)
+                    mch_dset[:] = motion_ch
+                    sgrp.attrs["motion_meas_date_iso"] = datetime.fromtimestamp(aux.get("motion_meas_date_sec", float("nan")), tz=timezone.utc).isoformat() if np.isfinite(aux.get("motion_meas_date_sec", float("nan"))) else ""
+                if "text_onset" in aux:
+                    sgrp.create_dataset("text_onset", data=aux["text_onset"], dtype=np.float64)
+                    text_desc = aux["text_description"]
+                    td_dset = sgrp.create_dataset("text_description", (len(text_desc),), dtype=dt_str)
+                    td_dset[:] = [str(x) for x in text_desc]
+                    sgrp.attrs["text_orig_time_iso"] = datetime.fromtimestamp(aux.get("text_orig_time_sec", float("nan")), tz=timezone.utc).isoformat() if np.isfinite(aux.get("text_orig_time_sec", float("nan"))) else ""
+            if p.get("xdf_filename"):
+                sgrp.attrs["xdf_filename"] = str(p["xdf_filename"])
+        f.attrs["n_sessions"] = len(payloads)
     print(f"Exported spectrograms to HDF5: {output_path.as_posix()}")
     return output_path
 
@@ -662,45 +675,14 @@ def export_spectrograms_netcdf(active_only_out_eeg_raws, results, output_path: P
         except Exception as e:
             print(f"  WARN: export_spectrograms_netcdf failed to derive dataset -> filename mapping: {e}")
     use_aux = session_aux_data_list is not None and len(session_aux_data_list) == len(active_only_out_eeg_raws)
-    session_rows: List[Dict[str, Any]] = []
-    for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
-        try:
-            if a_result is None or "spectogram" not in a_result:
-                continue
-            meas_date = a_raw.info.get("meas_date")
-            if meas_date is None:
-                meas_date_sec = float("nan")
-                meas_date_iso = ""
-            else:
-                if getattr(meas_date, "tzinfo", None) is None:
-                    meas_date = meas_date.replace(tzinfo=timezone.utc)
-                meas_date_sec = meas_date.timestamp()
-                meas_date_iso = meas_date.isoformat()
-            spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
-            channel_names = list(spectogram_result_dict.keys())
-            f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
-            freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
-            freqs = np.asarray(f0)[freq_mask]
-            times = np.asarray(t0)
-            Sxx_list = []
-            for ch_name in channel_names:
-                f, t, Sxx = spectogram_result_dict[ch_name]
-                Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
-            Sxx_stack = np.stack(Sxx_list, axis=0)
-            try:
-                duration_s = float(a_raw.times[-1] - a_raw.times[0]) if a_raw.times.size > 0 else float("nan")
-            except Exception:
-                duration_s = float("nan")
-            sfreq_hz = float(a_raw.info.get("sfreq", float("nan")))
-            xdf_filename = dataset_to_filename.get(idx)
-            row: Dict[str, Any] = {"session_idx": idx, "meas_date_iso": meas_date_iso, "meas_date_sec": meas_date_sec, "sfreq_hz": sfreq_hz, "duration_s": duration_s, "n_channels": len(channel_names), "xdf_filename": str(xdf_filename) if xdf_filename is not None else "", "channel_names": channel_names, "freqs": freqs, "times": times, "spectrogram": Sxx_stack}
-            if use_aux:
-                aux = _extract_session_aux_for_export(a_raw, session_aux_data_list[idx])
-                row["_aux"] = aux
-            session_rows.append(row)
-        except Exception as e:
-            print(f"  WARN: export_spectrograms_netcdf skipped session {idx}: {e}")
-            continue
+    task_args = [(idx, a_raw, a_result, session_aux_data_list[idx] if use_aux else None, freq_min, freq_max, dataset_to_filename.get(idx)) for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results))]
+    payloads = []
+    with ThreadPoolExecutor(max_workers=_export_num_workers()) as executor:
+        for p in executor.map(_payload_task, task_args):
+            if p is not None:
+                payloads.append(p)
+    payloads.sort(key=lambda x: x["idx"])
+    session_rows = [dict(p, session_idx=p["idx"]) for p in payloads]
     if not session_rows:
         print("  WARN: export_spectrograms_netcdf had no valid sessions; writing empty NetCDF.")
         ds_empty = xr.Dataset(attrs={"format_version": "1.0", "freq_min": float(freq_min), "freq_max": float(freq_max), "n_sessions": 0})
@@ -815,59 +797,33 @@ def export_spectrograms_parquet(active_only_out_eeg_raws, results, output_path: 
         except Exception as e:
             print(f"  WARN: export_spectrograms_parquet failed to derive dataset -> filename mapping: {e}")
     use_aux = session_aux_data_list is not None and len(session_aux_data_list) == len(active_only_out_eeg_raws)
-    rows: List[Dict[str, Any]] = []
-    for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
-        try:
-            if a_result is None or "spectogram" not in a_result:
-                continue
-            meas_date = a_raw.info.get("meas_date")
-            if meas_date is None:
-                meas_date_sec = float("nan")
-                meas_date_iso = ""
-            else:
-                if getattr(meas_date, "tzinfo", None) is None:
-                    meas_date = meas_date.replace(tzinfo=timezone.utc)
-                meas_date_sec = meas_date.timestamp()
-                meas_date_iso = meas_date.isoformat()
-            spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
-            channel_names = list(spectogram_result_dict.keys())
-            f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
-            freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
-            freqs = np.asarray(f0)[freq_mask]
-            times = np.asarray(t0)
-            Sxx_list = []
-            for ch_name in channel_names:
-                f, t, Sxx = spectogram_result_dict[ch_name]
-                Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
-            Sxx_stack = np.stack(Sxx_list, axis=0)
-            try:
-                duration_s = float(a_raw.times[-1] - a_raw.times[0]) if a_raw.times.size > 0 else float("nan")
-            except Exception:
-                duration_s = float("nan")
-            sfreq_hz = float(a_raw.info.get("sfreq", float("nan")))
-            xdf_filename = dataset_to_filename.get(idx)
-            spectrogram_nested = Sxx_stack.tolist()
-            row: Dict[str, Any] = {"session_idx": idx, "meas_date_iso": meas_date_iso, "meas_date_sec": meas_date_sec, "xdf_filename": str(xdf_filename) if xdf_filename is not None else "", "sfreq_hz": sfreq_hz, "duration_s": duration_s, "n_channels": len(channel_names), "channel_names": channel_names, "freqs": freqs.tolist(), "times": times.tolist(), "spectrogram": spectrogram_nested}
-            if use_aux:
-                aux = _extract_session_aux_for_export(a_raw, session_aux_data_list[idx])
-                if "eeg_data" in aux:
-                    row["eeg_data"] = aux["eeg_data"].tolist()
-                    row["eeg_times"] = aux["eeg_times"].tolist()
-                    row["eeg_channel_names"] = aux["eeg_channel_names"]
-                    row["eeg_meas_date_iso"] = datetime.fromtimestamp(aux["eeg_meas_date_sec"], tz=timezone.utc).isoformat() if np.isfinite(aux["eeg_meas_date_sec"]) else ""
-                if "motion_data" in aux:
-                    row["motion_data"] = aux["motion_data"].tolist()
-                    row["motion_times"] = aux["motion_times"].tolist()
-                    row["motion_ch_names"] = aux["motion_ch_names"]
-                    row["motion_meas_date_iso"] = datetime.fromtimestamp(aux.get("motion_meas_date_sec", float("nan")), tz=timezone.utc).isoformat() if np.isfinite(aux.get("motion_meas_date_sec", float("nan"))) else ""
-                if "text_onset" in aux:
-                    row["text_onset"] = aux["text_onset"].tolist()
-                    row["text_description"] = [str(x) for x in aux["text_description"]]
-                    row["text_orig_time_iso"] = datetime.fromtimestamp(aux.get("text_orig_time_sec", float("nan")), tz=timezone.utc).isoformat() if np.isfinite(aux.get("text_orig_time_sec", float("nan"))) else ""
-            rows.append(row)
-        except Exception as e:
-            print(f"  WARN: export_spectrograms_parquet skipped session {idx}: {e}")
-            continue
+    task_args = [(idx, a_raw, a_result, session_aux_data_list[idx] if use_aux else None, freq_min, freq_max, dataset_to_filename.get(idx)) for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results))]
+    payloads = []
+    with ThreadPoolExecutor(max_workers=_export_num_workers()) as executor:
+        for p in executor.map(_payload_task, task_args):
+            if p is not None:
+                payloads.append(p)
+    payloads.sort(key=lambda x: x["idx"])
+    rows = []
+    for p in payloads:
+        row: Dict[str, Any] = {"session_idx": p["idx"], "meas_date_iso": p["meas_date_iso"], "meas_date_sec": p["meas_date_sec"], "xdf_filename": p["xdf_filename"], "sfreq_hz": p["sfreq_hz"], "duration_s": p["duration_s"], "n_channels": p["n_channels"], "channel_names": p["channel_names"], "freqs": p["freqs"].tolist(), "times": p["times"].tolist(), "spectrogram": p["spectrogram"].tolist()}
+        aux = p.get("_aux")
+        if aux:
+            if "eeg_data" in aux:
+                row["eeg_data"] = aux["eeg_data"].tolist()
+                row["eeg_times"] = aux["eeg_times"].tolist()
+                row["eeg_channel_names"] = aux["eeg_channel_names"]
+                row["eeg_meas_date_iso"] = datetime.fromtimestamp(aux["eeg_meas_date_sec"], tz=timezone.utc).isoformat() if np.isfinite(aux["eeg_meas_date_sec"]) else ""
+            if "motion_data" in aux:
+                row["motion_data"] = aux["motion_data"].tolist()
+                row["motion_times"] = aux["motion_times"].tolist()
+                row["motion_ch_names"] = aux["motion_ch_names"]
+                row["motion_meas_date_iso"] = datetime.fromtimestamp(aux.get("motion_meas_date_sec", float("nan")), tz=timezone.utc).isoformat() if np.isfinite(aux.get("motion_meas_date_sec", float("nan"))) else ""
+            if "text_onset" in aux:
+                row["text_onset"] = aux["text_onset"].tolist()
+                row["text_description"] = [str(x) for x in aux["text_description"]]
+                row["text_orig_time_iso"] = datetime.fromtimestamp(aux.get("text_orig_time_sec", float("nan")), tz=timezone.utc).isoformat() if np.isfinite(aux.get("text_orig_time_sec", float("nan"))) else ""
+        rows.append(row)
     df = pd.DataFrame.from_records(rows)
     df.to_parquet(output_path, index=False)
     print(f"Exported spectrograms to Parquet: {output_path.as_posix()}")
