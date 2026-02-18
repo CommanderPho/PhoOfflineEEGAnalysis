@@ -1,0 +1,9 @@
+[project]
+name = "phoofflineeeganalysis-rerun"
+version = "0.1.0"
+description = "Rerun viewer environment for PhoOfflineEEGAnalysis (spectrograms, etc.). Run from repo root: uv run --project rerun -- python examples_jupyter/view_spectrograms_rerun.py <path.npz>"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=2.0",
+    "rerun-sdk>=0.29.0",
+]

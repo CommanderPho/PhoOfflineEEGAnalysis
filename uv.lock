@@ -5961,7 +5961,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "attrs", specifier = ">=22.2.0,<23" },
+    { name = "attrs", specifier = ">=22.2.0" },
     { name = "opencv-python", marker = "extra == 'video'", specifier = ">=4.5.0" },
     { name = "pandas", specifier = ">=1.5.3,<3.0.0" },
     { name = "pylsl", specifier = ">=1.16.2" },
