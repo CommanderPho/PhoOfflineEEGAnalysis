@@ -57,7 +57,7 @@ from phoofflineeeganalysis.PendingNotebookCode import (
 )
 
 
-def compute_session_summary_metrics(active_only_out_eeg_raws, results, stream_infos_df: Optional[pd.DataFrame], output_folder: Path, freq_min: float = 1.0, freq_max: float = 40.0) -> Path:
+def compute_session_summary_metrics(active_only_out_eeg_raws, results, stream_infos_df: Optional[pd.DataFrame], output_folder: Path, freq_min: float = 1.0, freq_max: float = 40.0, filename_prefix: str = "") -> Path:
     """
     Compute simple per-session summary metrics from the spectrogram outputs and save to CSV.
 
@@ -187,18 +187,18 @@ def compute_session_summary_metrics(active_only_out_eeg_raws, results, stream_in
 
     if not rows:
         print("No valid spectrogram-based metrics were computed; skipping CSV export.")
-        return output_folder.joinpath("session_summaries_empty.csv")
+        return output_folder.joinpath(f"{filename_prefix}session_summaries_empty.csv")
 
     metrics_df = pd.DataFrame.from_records(rows)
-    csv_path = output_folder.joinpath("session_summaries.csv")
+    csv_path = output_folder.joinpath(f"{filename_prefix}session_summaries.csv")
     metrics_df.to_csv(csv_path, index=False)
 
     print(f"\nSaved per-session summary metrics to: {csv_path.as_posix()}")
     return csv_path
 
 
-def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_folder: Path, 
-                                     freq_min: float = 1.0, freq_max: float = 40.0):
+def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_folder: Path,
+                                     freq_min: float = 1.0, freq_max: float = 40.0, filename_prefix: str = ""):
     """
     Export interactive HTML spectrograms for each EEG session using HoloViews.
     
@@ -293,7 +293,7 @@ def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_f
             )
             
             # Save to HTML
-            html_path = output_folder / f"spectrogram_{session_name}.html"
+            html_path = output_folder / f"{filename_prefix}spectrogram_{session_name}.html"
             hv.save(layout, html_path, backend='bokeh')
             html_files.append(html_path)
             
@@ -974,8 +974,8 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
 if __name__ == "__main__":
 
     # n_most_recent_sessions_to_preprocess: int = None # None means all sessions
-    # n_most_recent_sessions_to_preprocess: int = 35
-    n_most_recent_sessions_to_preprocess: int = 15
+    n_most_recent_sessions_to_preprocess: int = 35
+    # n_most_recent_sessions_to_preprocess: int = 15
 
     should_load_preprocessed: bool = False
     # should_load_preprocessed: bool = True
@@ -1007,6 +1007,7 @@ if __name__ == "__main__":
     included_xdf_file_names = None ## include all 
     included_xdf_file_names
 
+    export_date_prefix = datetime.now().strftime("%Y-%m-%d_")
 
     sso, xdf_dataset_indicies, _out_xdf_stream_infos_df, active_only_out_eeg_raws, results = process_XDFs_main(included_xdf_file_names=included_xdf_file_names, 
                                                                                                                 n_most_recent_sessions_to_preprocess=n_most_recent_sessions_to_preprocess,
@@ -1043,6 +1044,7 @@ if __name__ == "__main__":
         output_folder=summary_output_folder,
         freq_min=1.0,
         freq_max=40.0,
+        filename_prefix=export_date_prefix,
     )
 
     # ## Save results to Zarr format
@@ -1090,7 +1092,8 @@ if __name__ == "__main__":
         results=results,
         output_folder=html_output_folder,
         freq_min=1.0,
-        freq_max=40.0
+        freq_max=40.0,
+        filename_prefix=export_date_prefix,
     )
     print(f'\tdone.')
     # Export spectrograms + datetime for Rerun (view in another process: python view_spectrograms_rerun.py <path.npz> or rerun <path.rrd>)
@@ -1099,25 +1102,25 @@ if __name__ == "__main__":
     spectrograms_nc_path = None
     spectrograms_parquet_path = None
     try:
-        spectrograms_npz_path = outputs_root_folder.joinpath("spectrograms_export.npz")
+        spectrograms_npz_path = outputs_root_folder.joinpath(f"{export_date_prefix}spectrograms_export.npz")
         export_spectrograms_for_rerun(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_npz_path, freq_min=1.0, freq_max=40.0)
     except Exception as e:
         print(f"  Export failed (Rerun .npz): {e}")
         spectrograms_npz_path = None
     try:
-        spectrograms_h5_path = outputs_root_folder.joinpath("spectrograms_export.h5")
+        spectrograms_h5_path = outputs_root_folder.joinpath(f"{export_date_prefix}spectrograms_export.h5")
         export_spectrograms_hdf5(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_h5_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df)
     except Exception as e:
         print(f"  Export failed (HDF5): {e}")
         spectrograms_h5_path = None
     try:
-        spectrograms_nc_path = outputs_root_folder.joinpath("spectrograms_export.nc")
+        spectrograms_nc_path = outputs_root_folder.joinpath(f"{export_date_prefix}spectrograms_export.nc")
         export_spectrograms_netcdf(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_nc_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df)
     except Exception as e:
         print(f"  Export failed (NetCDF): {e}")
         spectrograms_nc_path = None
     try:
-        spectrograms_parquet_path = outputs_root_folder.joinpath("spectrograms_export.parquet")
+        spectrograms_parquet_path = outputs_root_folder.joinpath(f"{export_date_prefix}spectrograms_export.parquet")
         export_spectrograms_parquet(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_parquet_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df)
     except Exception as e:
         print(f"  Export failed (Parquet): {e}")
