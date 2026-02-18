@@ -48,10 +48,9 @@ from phoofflineeeganalysis.analysis.motion_data import MotionData
 from phoofflineeeganalysis.analysis.EEG_data import EEGComputations, EEGData
 from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelper
 from phoofflineeeganalysis.EegVisualization import VisHelpers
-from phoofflineeeganalysis.analysis.SavedSessionsProcessor import (
-    SavedSessionsProcessor, SessionModality, DataModalityType,
-    LabRecorderXDF, unwrap_single_element_listlike_if_needed, XDFDataStreamAccessor
-)
+from phoofflineeeganalysis.analysis.SavedSessionsProcessor import SavedSessionsProcessor, SessionModality, DataModalityType
+from phoofflineeeganalysis.analysis.xdf_files import LabRecorderXDF, XDFDataStreamAccessor
+from phopylslhelper.general_helpers import unwrap_single_element_listlike_if_needed
 from phoofflineeeganalysis.PendingNotebookCode import (
     batch_compute_all_eeg_datasets, render_all_spectograms_to_high_quality_pdfs,
     plot_all_spectograms, plot_session_spectogram, ZarrSerialization, build_merged
