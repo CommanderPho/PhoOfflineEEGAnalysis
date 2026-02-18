@@ -1,6 +1,6 @@
 ---
 description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
+applyTo: *
 ---
 
 ## PROJECT OVERVIEW
@@ -260,6 +260,17 @@ By stepping through the logic and checking types, you should be able to pinpoint
 - The user reported an `AttributeError: module 'rerun' has no attribute 'TextLog'`. This indicates that the installed `rerun-sdk` version is older than expected (likely 0.6, predating the `TextLog` API). To address this:
    - A compatibility helper `_set_time_sec(t_sec: float)` was added to `src/phoofflineeeganalysis/converters/xdf_to_rerun.py` to handle potential differences in the time-setting API.
    - A fallback mechanism using `rr.log_text_entry(entity, text)` was implemented for text-based marker streams within the `_stream_markers_to_rerun` function to ensure compatibility with older `rerun-sdk` versions.
+- When modernizing a standalone XDF analysis script (`main_analyze_run.py`), the following steps should be taken:
+  1. **NDArray Import:** Remove the import `from nptyping import NDArray` and only use `from numpy.typing import NDArray`.
+  2. **IPython Imports:** Remove the imports `from IPython import get_ipython` and `from IPython.terminal.interactiveshell import InteractiveShell` as they are not needed for standalone execution.
+  3. **Unused `read_raw` Import:** Remove the import `from mne.io import read_raw` if it's not used in the script.
+  4. **GUI-Related Initialization:** Make the extension/backend setup conditional or safe for non-GUI environments. Specifically, the following lines in the script, which run at module load, may be problematic if running headless:
+     - `mne.viz.set_browser_backend("qt")`
+     - `set_log_level`
+     - `hv.extension`
+     - `hvplot.extension`
+     - `pn.extension`
+  5. **Unused `Player` and `Stream` Imports:** Check if the `Player` and `Stream` imports from `mne_lsl` are used. If not, remove them.
 
 ## FINAL DOs AND DON'Ts
 
@@ -459,25 +470,4 @@ def export_multiple_eeg_datasets_to_airtable(raws: List[mne.io.BaseRaw],
     Export multiple EEG datasets to Airtable.
     
     Args:
-        raws: List of MNE Raw objects
-        airtable_base_id: Airtable base ID
-        airtable_table_name: Name of the Airtable table
-        airtable_api_key: Airtable API key
-        xdf_file_paths: Optional list of XDF file paths (must match length of raws)
-        additional_fields_list: Optional list of additional field dictionaries
-        
-    Returns:
-        List of result dictionaries from export_eeg_dataset_to_airtable
-    """
-    results = []
-    
-    for idx, raw in enumerate(raws):
-        xdf_path = xdf_file_paths[idx] if xdf_file_paths and idx < len(xdf_file_paths) else None
-        additional = additional_fields_list[idx] if additional_fields_list and idx < len(additional_fields_list) else None
-        
-        result = export_eeg_dataset_to_airtable(
-            raw=raw,
-            airtable_base_id=airtable_base_id,
-            airtable_table_name=airtable_table_name,
-            airtable_api_key=airtable_api_key,
-            xdf_file_path=xdf_path,
+        raws:
