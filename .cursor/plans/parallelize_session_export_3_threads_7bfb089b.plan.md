@@ -67,7 +67,7 @@ This keeps all per-session logic in one place and makes the export loops thin: b
 - Build list of task args: for each `idx, (a_raw, a_result)` in `enumerate(zip(active_only_out_eeg_raws, results))`, append `(idx, a_raw, a_result, session_aux_data_list[idx] if use_aux else None, freq_min, freq_max, None)` (xdf_filename not needed for NPZ; can pass `None` or add to helper and ignore in NPZ).
 - Run `ThreadPoolExecutor(max_workers=3).submit(_compute_session_export_payload, *args)` for each task (or use `executor.map` with a wrapper that unpacks args).
 - Collect results (e.g. `as_completed` or `map`), drop `None`, sort by `payload["idx"]`.
-- Loop over sorted payloads: for each payload, fill `export_dict` with `s{idx}_meas_date_sec`, `s{idx}_channel_names`, `s{idx}_freqs`, `s{idx}_times`, `s{idx}_Sxx`, and if `_aux` present the same `s{idx}_eeg_*` / `s{idx}_motion_*` / `s{idx}_text_*` keys as today.
+- Loop over sorted payloads: for each payload, fill `export_dict` with `s{idx}_meas_date_sec`, `s{idx}_channel_names`, `s{idx}_freqs`, `s{idx}_times`, `s{idx}_Sxx`, and if `_aux` present the same `s{idx}_eeg_`* / `s{idx}_motion_*` / `s{idx}_text_*` keys as today.
 - Set `export_dict["session_indices"]` from the payloads’ `idx`.
 - Call `np.savez_compressed(output_path, **export_dict)` unchanged.
 
