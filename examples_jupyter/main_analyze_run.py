@@ -542,6 +542,159 @@ def export_spectrograms_hdf5(active_only_out_eeg_raws, results, output_path: Pat
     return output_path
 
 
+def export_spectrograms_netcdf(active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0, stream_infos_df: Optional[pd.DataFrame] = None) -> Path:
+    """
+    Export spectrograms, timestamps, and recording metadata to a single CF-friendly NetCDF file for interchange.
+
+    The output can be read by Python (xarray/netCDF4), R, Julia, MATLAB, and other tools. Stores spectrograms
+    (session, channel, freq, time), time/freq axes with NaN padding for variable-length sessions, and
+    session-level metadata (meas_date_iso, meas_date_sec, sfreq_hz, duration_s, n_channels, xdf_filename).
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    dataset_to_filename: Dict[int, str] = {}
+    if stream_infos_df is not None:
+        try:
+            tmp_df = stream_infos_df.reset_index()
+            if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
+                for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
+                    dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
+        except Exception as e:
+            print(f"  WARN: export_spectrograms_netcdf failed to derive dataset -> filename mapping: {e}")
+    session_rows: List[Dict[str, Any]] = []
+    for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
+        try:
+            if a_result is None or "spectogram" not in a_result:
+                continue
+            meas_date = a_raw.info.get("meas_date")
+            if meas_date is None:
+                meas_date_sec = float("nan")
+                meas_date_iso = ""
+            else:
+                if getattr(meas_date, "tzinfo", None) is None:
+                    meas_date = meas_date.replace(tzinfo=timezone.utc)
+                meas_date_sec = meas_date.timestamp()
+                meas_date_iso = meas_date.isoformat()
+            spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
+            channel_names = list(spectogram_result_dict.keys())
+            f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
+            freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
+            freqs = np.asarray(f0)[freq_mask]
+            times = np.asarray(t0)
+            Sxx_list = []
+            for ch_name in channel_names:
+                f, t, Sxx = spectogram_result_dict[ch_name]
+                Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
+            Sxx_stack = np.stack(Sxx_list, axis=0)
+            try:
+                duration_s = float(a_raw.times[-1] - a_raw.times[0]) if a_raw.times.size > 0 else float("nan")
+            except Exception:
+                duration_s = float("nan")
+            sfreq_hz = float(a_raw.info.get("sfreq", float("nan")))
+            xdf_filename = dataset_to_filename.get(idx)
+            session_rows.append({"session_idx": idx, "meas_date_iso": meas_date_iso, "meas_date_sec": meas_date_sec, "sfreq_hz": sfreq_hz, "duration_s": duration_s, "n_channels": len(channel_names), "xdf_filename": str(xdf_filename) if xdf_filename is not None else "", "channel_names": channel_names, "freqs": freqs, "times": times, "spectrogram": Sxx_stack})
+        except Exception as e:
+            print(f"  WARN: export_spectrograms_netcdf skipped session {idx}: {e}")
+            continue
+    if not session_rows:
+        print("  WARN: export_spectrograms_netcdf had no valid sessions; writing empty NetCDF.")
+        ds_empty = xr.Dataset(attrs={"format_version": "1.0", "freq_min": float(freq_min), "freq_max": float(freq_max), "n_sessions": 0})
+        ds_empty.to_netcdf(output_path)
+        print(f"Exported spectrograms to NetCDF: {output_path.as_posix()}")
+        return output_path
+    n_sessions = len(session_rows)
+    n_channels = max(r["spectrogram"].shape[0] for r in session_rows)
+    n_freq = max(r["freqs"].size for r in session_rows)
+    n_time = max(r["times"].size for r in session_rows)
+    spectrogram_padded = np.full((n_sessions, n_channels, n_freq, n_time), np.nan, dtype=np.float64)
+    freqs_padded = np.full((n_sessions, n_freq), np.nan, dtype=np.float64)
+    times_padded = np.full((n_sessions, n_time), np.nan, dtype=np.float64)
+    for i, r in enumerate(session_rows):
+        nc, nf, nt = r["spectrogram"].shape
+        spectrogram_padded[i, :nc, :nf, :nt] = r["spectrogram"]
+        freqs_padded[i, :r["freqs"].size] = r["freqs"]
+        times_padded[i, :r["times"].size] = r["times"]
+    meas_date_iso_arr = np.array([r["meas_date_iso"] for r in session_rows], dtype=object)
+    meas_date_sec_arr = np.array([r["meas_date_sec"] for r in session_rows])
+    sfreq_hz_arr = np.array([r["sfreq_hz"] for r in session_rows])
+    duration_s_arr = np.array([r["duration_s"] for r in session_rows])
+    n_channels_arr = np.array([r["n_channels"] for r in session_rows])
+    xdf_filename_arr = np.array([r["xdf_filename"] for r in session_rows], dtype=object)
+    channel_names_padded = np.full((n_sessions, n_channels), "", dtype=object)
+    for i, r in enumerate(session_rows):
+        for j, name in enumerate(r["channel_names"]):
+            if j < n_channels:
+                channel_names_padded[i, j] = name
+    ds = xr.Dataset(
+        {"spectrogram": (("session", "channel", "freq", "time"), spectrogram_padded), "freqs": (("session", "freq"), freqs_padded), "times": (("session", "time"), times_padded), "meas_date_iso": (("session",), meas_date_iso_arr), "meas_date_sec": (("session",), meas_date_sec_arr), "sfreq_hz": (("session",), sfreq_hz_arr), "duration_s": (("session",), duration_s_arr), "n_channels": (("session",), n_channels_arr), "xdf_filename": (("session",), xdf_filename_arr), "channel_names": (("session", "channel"), channel_names_padded)},
+        coords={"session": np.arange(n_sessions), "channel": np.arange(n_channels), "freq": np.arange(n_freq), "time": np.arange(n_time)},
+        attrs={"format_version": "1.0", "freq_min": float(freq_min), "freq_max": float(freq_max), "n_sessions": n_sessions},
+    )
+    ds.to_netcdf(output_path)
+    print(f"Exported spectrograms to NetCDF: {output_path.as_posix()}")
+    return output_path
+
+
+def export_spectrograms_parquet(active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0, stream_infos_df: Optional[pd.DataFrame] = None) -> Path:
+    """
+    Export spectrograms, timestamps, and recording metadata to a single Parquet file for interchange and analytics.
+
+    One row per session with scalar metadata and list/array columns for channel_names, freqs, times, and
+    spectrogram (3D as list of list of list). Readable with pandas/PyArrow in Python, R, and other tools.
+    """
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    dataset_to_filename: Dict[int, str] = {}
+    if stream_infos_df is not None:
+        try:
+            tmp_df = stream_infos_df.reset_index()
+            if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
+                for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
+                    dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
+        except Exception as e:
+            print(f"  WARN: export_spectrograms_parquet failed to derive dataset -> filename mapping: {e}")
+    rows: List[Dict[str, Any]] = []
+    for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
+        try:
+            if a_result is None or "spectogram" not in a_result:
+                continue
+            meas_date = a_raw.info.get("meas_date")
+            if meas_date is None:
+                meas_date_sec = float("nan")
+                meas_date_iso = ""
+            else:
+                if getattr(meas_date, "tzinfo", None) is None:
+                    meas_date = meas_date.replace(tzinfo=timezone.utc)
+                meas_date_sec = meas_date.timestamp()
+                meas_date_iso = meas_date.isoformat()
+            spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
+            channel_names = list(spectogram_result_dict.keys())
+            f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
+            freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
+            freqs = np.asarray(f0)[freq_mask]
+            times = np.asarray(t0)
+            Sxx_list = []
+            for ch_name in channel_names:
+                f, t, Sxx = spectogram_result_dict[ch_name]
+                Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
+            Sxx_stack = np.stack(Sxx_list, axis=0)
+            try:
+                duration_s = float(a_raw.times[-1] - a_raw.times[0]) if a_raw.times.size > 0 else float("nan")
+            except Exception:
+                duration_s = float("nan")
+            sfreq_hz = float(a_raw.info.get("sfreq", float("nan")))
+            xdf_filename = dataset_to_filename.get(idx)
+            spectrogram_nested = Sxx_stack.tolist()
+            rows.append({"session_idx": idx, "meas_date_iso": meas_date_iso, "meas_date_sec": meas_date_sec, "xdf_filename": str(xdf_filename) if xdf_filename is not None else "", "sfreq_hz": sfreq_hz, "duration_s": duration_s, "n_channels": len(channel_names), "channel_names": channel_names, "freqs": freqs.tolist(), "times": times.tolist(), "spectrogram": spectrogram_nested})
+        except Exception as e:
+            print(f"  WARN: export_spectrograms_parquet skipped session {idx}: {e}")
+            continue
+    df = pd.DataFrame.from_records(rows)
+    df.to_parquet(output_path, index=False)
+    print(f"Exported spectrograms to Parquet: {output_path.as_posix()}")
+    return output_path
+
+
 # Configuration
 mne.viz.set_browser_backend("qt")
 mne.set_config("MNE_BROWSER_BACKEND", "qt")
@@ -940,10 +1093,34 @@ if __name__ == "__main__":
     )
     print(f'\tdone.')
     # Export spectrograms + datetime for Rerun (view in another process: python view_spectrograms_rerun.py <path.npz> or rerun <path.rrd>)
-    spectrograms_npz_path = outputs_root_folder.joinpath("spectrograms_export.npz")
-    export_spectrograms_for_rerun(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_npz_path, freq_min=1.0, freq_max=40.0)
-    spectrograms_h5_path = outputs_root_folder.joinpath("spectrograms_export.h5")
-    export_spectrograms_hdf5(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_h5_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df)
+    spectrograms_npz_path = None
+    spectrograms_h5_path = None
+    spectrograms_nc_path = None
+    spectrograms_parquet_path = None
+    try:
+        spectrograms_npz_path = outputs_root_folder.joinpath("spectrograms_export.npz")
+        export_spectrograms_for_rerun(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_npz_path, freq_min=1.0, freq_max=40.0)
+    except Exception as e:
+        print(f"  Export failed (Rerun .npz): {e}")
+        spectrograms_npz_path = None
+    try:
+        spectrograms_h5_path = outputs_root_folder.joinpath("spectrograms_export.h5")
+        export_spectrograms_hdf5(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_h5_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df)
+    except Exception as e:
+        print(f"  Export failed (HDF5): {e}")
+        spectrograms_h5_path = None
+    try:
+        spectrograms_nc_path = outputs_root_folder.joinpath("spectrograms_export.nc")
+        export_spectrograms_netcdf(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_nc_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df)
+    except Exception as e:
+        print(f"  Export failed (NetCDF): {e}")
+        spectrograms_nc_path = None
+    try:
+        spectrograms_parquet_path = outputs_root_folder.joinpath("spectrograms_export.parquet")
+        export_spectrograms_parquet(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_parquet_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df)
+    except Exception as e:
+        print(f"  Export failed (Parquet): {e}")
+        spectrograms_parquet_path = None
     # # Export combined HTML view
     # combined_html_path = outputs_root_folder.joinpath(f"2025-11-18_all_spectrograms_{len(active_only_out_eeg_raws)}_sessions.html")
     # combined_html_file = export_combined_spectrograms_html(
@@ -961,6 +1138,8 @@ if __name__ == "__main__":
     # print(f'NetCDF output: {netcdf_save_path}')
     print(f'Individual HTML spectrograms: {html_output_folder} ({len(html_files)} files)')
     print(f'Session summary metrics CSV: {summary_csv_path}')
-    print(f'Spectrograms for Rerun: {spectrograms_npz_path} (run: uv run --project rerun -- python examples_jupyter/view_spectrograms_rerun.py "<path.npz>" then open the .rrd with rerun)')
-    print(f'Spectrograms HDF5 (interchange): {spectrograms_h5_path}')
+    print(f'Spectrograms for Rerun: {spectrograms_npz_path if spectrograms_npz_path else "failed"} (run: uv run --project rerun -- python examples_jupyter/view_spectrograms_rerun.py "<path.npz>" then open the .rrd with rerun)')
+    print(f'Spectrograms HDF5 (interchange): {spectrograms_h5_path if spectrograms_h5_path else "failed"}')
+    print(f'Spectrograms NetCDF (interchange): {spectrograms_nc_path if spectrograms_nc_path else "failed"}')
+    print(f'Spectrograms Parquet (interchange): {spectrograms_parquet_path if spectrograms_parquet_path else "failed"}')
     # print(f'Combined HTML spectrogram: {combined_html_file}')
