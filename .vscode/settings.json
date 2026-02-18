@@ -57,5 +57,6 @@
     },
     "git.ignoreLimitWarning": true,
     "python.languageServer": "None",
+    "specstory.cloudSync.enabled": "never",
 
 }
