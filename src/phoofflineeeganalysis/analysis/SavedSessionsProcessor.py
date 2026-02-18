@@ -368,10 +368,10 @@ class SavedSessionsProcessor:
         # data_path = Path(r"C:/Users/pho/repos/EmotivEpoc/PhoLabStreamingReceiver/data").resolve()
         # assert data_path.exists()
 
-        # pickled_data_path = Path(r"E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/PICKLED_COLLECTION").resolve()
-        if pkl_path.resolve().is_dir():
+        # pickled_data_path = Path(r"E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/PICKLED_COLLECTION")
+        if pkl_path.is_dir():
             assert pkl_path.exists(), f"Directory {pkl_path.as_posix()} must exist!"
-            pkl_path = pkl_path.joinpath("2025-09-02_50records_SSO_all.pkl").resolve()
+            pkl_path = pkl_path.joinpath("2025-09-02_50records_SSO_all.pkl")
         else:
             print(f'pkl_path is already a direct pkl file name: "{pkl_path.as_posix()}"')
 
@@ -401,7 +401,7 @@ class SavedSessionsProcessor:
     def save_to_EDF(self, edf_export_parent_path: Path = Path(r"E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/exported_EDF")) -> List[Path]:
         """ saves the EEG files (post-processing) out to EDF files for viewing in EDFViewer or similar applications.
 
-        edf_export_parent_path: Path = Path(r"E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/exported_EDF").resolve()
+        edf_export_parent_path: Path = Path(r"E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/exported_EDF")
                 
         written_EDF_file_paths = sso.save_to_EDF()
         
@@ -418,9 +418,9 @@ class SavedSessionsProcessor:
             ## INPUTS: raw_eeg
             ## Get paths for current raw:
             try:
-                curr_fif_file_path: Path = Path(raw_eeg.filenames[0]).resolve()
+                curr_fif_file_path: Path = Path(raw_eeg.filenames[0])
                 curr_file_edf_name: str = curr_fif_file_path.with_suffix('.edf').name
-                curr_file_edf_path: Path = edf_export_parent_path.joinpath(curr_file_edf_name).resolve()
+                curr_file_edf_path: Path = edf_export_parent_path.joinpath(curr_file_edf_name)
                 curr_file_edf_path = raw_eeg.save_to_edf(output_path=curr_file_edf_path)
                 # EEGData.save_mne_raw_to_edf(raw_eeg, curr_file_edf_path)
                 written_EDF_file_paths.append(curr_file_edf_path)
@@ -540,19 +540,19 @@ class EntireDayMergedData:
         ## convert to day-specific version:
         if save_fif:
             ## Save out the concatenated raw to a specific folder:
-            day_grouped_processed_output_parent_path: Path = sso.eeg_analyzed_parent_export_path.joinpath('dayProcessed').resolve()
+            day_grouped_processed_output_parent_path: Path = sso.eeg_analyzed_parent_export_path.joinpath('dayProcessed')
             day_grouped_processed_output_parent_path.mkdir(parents=True, exist_ok=True)
 
             ## INPUTS: search_day_date
-            curr_day_grouped_output_folder: Path = day_grouped_processed_output_parent_path.joinpath(search_day_date.strftime("%Y-%m-%d")).resolve()
+            curr_day_grouped_output_folder: Path = day_grouped_processed_output_parent_path.joinpath(search_day_date.strftime("%Y-%m-%d"))
             curr_day_grouped_output_folder.mkdir(parents=True, exist_ok=True)
             print(f'curr_day_grouped_output_folder: "{curr_day_grouped_output_folder.as_posix()}"')            
 
-            a_path = Path(concatenated_raw.filenames[0]).resolve()
+            a_path = Path(concatenated_raw.filenames[0])
             name_parts = a_path.name.split('-', maxsplit=4) # ['20250908', '121104', 'Epoc X', 'raw.fif']
             name_parts[1] = '000000'  # Set time part to '000000'
             new_name: str = '-'.join(name_parts)
-            new_path: Path = curr_day_grouped_output_folder.joinpath(new_name).resolve()
+            new_path: Path = curr_day_grouped_output_folder.joinpath(new_name)
 
 
             # TODO 2025-09-09 22:03: - [ ] IMPORTANT:
@@ -567,13 +567,13 @@ class EntireDayMergedData:
         ## INPUTS: raw_eeg
         if save_edf:
             if edf_export_parent_path is None:
-                edf_export_parent_path: Path = Path(r"E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/exported_EDF").resolve()
+                edf_export_parent_path: Path = Path(r"E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/exported_EDF")
                 
             edf_export_parent_path.mkdir(exist_ok=True)
 
             ## Get paths for current raw:
             curr_file_edf_name: str = new_path.with_suffix('.edf').name
-            curr_file_edf_path: Path = edf_export_parent_path.joinpath(curr_file_edf_name).resolve()
+            curr_file_edf_path: Path = edf_export_parent_path.joinpath(curr_file_edf_name)
             # EEGData.save_mne_raw_to_edf(concatenated_raw, curr_file_edf_path)
             curr_file_edf_path = concatenated_raw.save_to_edf(output_path=curr_file_edf_path)
         else:

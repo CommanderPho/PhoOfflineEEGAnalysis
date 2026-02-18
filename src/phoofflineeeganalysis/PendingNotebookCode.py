@@ -680,7 +680,7 @@ class ZarrSerialization:
 
 def save_all_to_HDF5(_active_only_out_eeg_raw, _active_all_outputs_dict, hdf5_out_path: Path):
     """
-        hdf5_out_path: Path = Path('E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/outputs').joinpath('2025-09-22_eegComputations.h5').resolve()
+        hdf5_out_path: Path = Path('E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/outputs').joinpath('2025-09-22_eegComputations.h5')
     hdf5_out_path
     """
 
@@ -688,7 +688,7 @@ def save_all_to_HDF5(_active_only_out_eeg_raw, _active_all_outputs_dict, hdf5_ou
         # a_path: Path = Path(a_raw.filenames[0])
         # basename: str = a_path.stem
         # basename: str = a_raw.info.get('meas_date')
-        src_file_path: Path = Path(a_raw.info.get('description')).resolve()
+        src_file_path: Path = Path(a_raw.info.get('description'))
         basename: str = src_file_path.stem
 
         print(f'basename: {basename}')
@@ -875,7 +875,7 @@ def render_all_spectograms_to_high_quality_pdfs(
     """
     if output_parent_folder is None:
         today = datetime.now().strftime("%Y-%m-%d")
-        output_parent_folder = Path.cwd().joinpath("spectrogram_exports", today).resolve()
+        output_parent_folder = Path.cwd().joinpath("spectrogram_exports", today)
     output_parent_folder.mkdir(parents=True, exist_ok=True)
 
     written_paths: List[Path] = []
@@ -899,7 +899,7 @@ def render_all_spectograms_to_high_quality_pdfs(
             description_val = a_raw.info.get('description', None)
             if description_val is not None:
                 try:
-                    src_file_path = Path(description_val).resolve()
+                    src_file_path = Path(description_val)
                 except Exception:
                     src_file_path = None
             basename: str = src_file_path.stem if (src_file_path is not None and src_file_path.exists()) else f"EEG_{idx:03d}"
@@ -914,7 +914,7 @@ def render_all_spectograms_to_high_quality_pdfs(
         safe_meas_date_str = str(meas_date) if isinstance(meas_date, datetime) else "Unknown"
 
         # Create output path per session
-        out_pdf_path: Path = output_parent_folder.joinpath(f"{basename}_spectrogram.pdf").resolve()
+        out_pdf_path: Path = output_parent_folder.joinpath(f"{basename}_spectrogram.pdf")
 
         # Build time axis from one channel's spectrogram (assume consistent t across channels)
         # Choose the first entry deterministically

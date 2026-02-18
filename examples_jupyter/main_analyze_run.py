@@ -710,35 +710,37 @@ pn.extension()
 datasets = []
 
 
-# db_root_path = Path('/content/drive/MyDrive/Databases').resolve()
-db_root_path = Path('E:/Dropbox (Personal)/Databases').resolve()
+# db_root_path = Path('/content/drive/MyDrive/Databases')
+db_root_path = Path('E:/Dropbox (Personal)/Databases')
 assert db_root_path.exists(), f"'{db_root_path.as_posix()}' does not exist!"
 
-# eeg_recordings_file_path: Path = Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/EmotivEpocX_EEGRecordings/fif').resolve()
-# headset_motion_recordings_file_path: Path = Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/EmotivEpocX_EEGRecordings/MOTION_RECORDINGS/fif').resolve()
+# eeg_recordings_file_path: Path = Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/EmotivEpocX_EEGRecordings/fif')
+# headset_motion_recordings_file_path: Path = Path(r'E:/Dropbox (Personal)/Databases/UnparsedData/EmotivEpocX_EEGRecordings/MOTION_RECORDINGS/fif')
 
 # assert eeg_recordings_file_path.exists()
 # assert headset_motion_recordings_file_path.exists()
 
-eeg_recordings_file_path: Path = db_root_path.joinpath('UnparsedData/EmotivEpocX_EEGRecordings/fif').resolve()
-flutter_eeg_recordings_file_path: Path = db_root_path.joinpath('UnparsedData/EmotivEEG_FlutterRecordings').resolve()
-flutter_motion_recordings_file_path: Path = db_root_path.joinpath('UnparsedData/EmotivEEG_FlutterRecordings/MOTION_RECORDINGS').resolve()
-flutter_GENERIC_recordings_file_path: Path = db_root_path.joinpath('UnparsedData/EmotivEEG_FlutterRecordings/GENERIC_RECORDINGS').resolve()
+eeg_recordings_file_path: Path = db_root_path.joinpath('UnparsedData/EmotivEpocX_EEGRecordings/fif')
+flutter_eeg_recordings_file_path: Path = db_root_path.joinpath('UnparsedData/EmotivEEG_FlutterRecordings')
+flutter_motion_recordings_file_path: Path = db_root_path.joinpath('UnparsedData/EmotivEEG_FlutterRecordings/MOTION_RECORDINGS')
+flutter_GENERIC_recordings_file_path: Path = db_root_path.joinpath('UnparsedData/EmotivEEG_FlutterRecordings/GENERIC_RECORDINGS')
 
-headset_motion_recordings_file_path: Path = db_root_path.joinpath('UnparsedData/EmotivEpocX_EEGRecordings/MOTION_RECORDINGS/fif').resolve()
-WhisperVideoTranscripts_LSL_Converted = db_root_path.joinpath('UnparsedData/WhisperVideoTranscripts_LSL_Converted').resolve()
-pho_log_to_LSL_recordings_path: Path = db_root_path.joinpath('UnparsedData/PhoLogToLabStreamingLayer_logs').resolve()
+headset_motion_recordings_file_path: Path = db_root_path.joinpath('UnparsedData/EmotivEpocX_EEGRecordings/MOTION_RECORDINGS/fif')
+WhisperVideoTranscripts_LSL_Converted = db_root_path.joinpath('UnparsedData/WhisperVideoTranscripts_LSL_Converted')
+pho_log_to_LSL_recordings_path: Path = db_root_path.joinpath('UnparsedData/PhoLogToLabStreamingLayer_logs')
 ## These contain little LSL .fif files with names like: '20250808_062814_log.fif',
 
-eeg_analyzed_parent_export_path = db_root_path.joinpath('AnalysisData/MNE_preprocessed').resolve()
-pickled_data_path = db_root_path.joinpath('AnalysisData/MNE_preprocessed/PICKLED_COLLECTION').resolve()
-assert pickled_data_path.exists()
+eeg_analyzed_parent_export_path = db_root_path.joinpath('AnalysisData/MNE_preprocessed')
+pickled_data_path = db_root_path.joinpath('AnalysisData/MNE_preprocessed/PICKLED_COLLECTION')
+pickled_data_path.mkdir(exist_ok=True)
+assert pickled_data_path.exists(), f"'{pickled_data_path.as_posix()}' does not exist!"
 
-outputs_root_folder: Path = Path('L:/AITEMP/PhoOfflineEEGAnalysisOutputs').resolve()
-assert outputs_root_folder.exists()
 
-lab_recorder_output_path = Path("E:/Dropbox (Personal)/Databases/UnparsedData/LabRecorderStudies/sub-P001").resolve()
-assert lab_recorder_output_path.exists()
+outputs_root_folder: Path = Path('L:/AITEMP/PhoOfflineEEGAnalysisOutputs')
+assert outputs_root_folder.exists(), f"'{outputs_root_folder.as_posix()}' does not exist!"
+
+lab_recorder_output_path = Path("E:/Dropbox (Personal)/Databases/UnparsedData/LabRecorderStudies/sub-P001")
+assert lab_recorder_output_path.exists(), f"'{lab_recorder_output_path.as_posix()}' does not exist!"
 
 
 def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
