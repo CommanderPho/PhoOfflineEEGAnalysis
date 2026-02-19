@@ -64,11 +64,14 @@ from phoofflineeeganalysis.PendingNotebookCode import (
 COMPUTATION_HISTORY_COLUMNS = ["cache_key_hex", "xdf_path", "xdf_mtime", "params_json", "result_path", "fif_filename", "computed_at"]
 
 
-def _compute_computation_cache_key(xdf_path: Path, mtime: float, params: Dict[str, Any]) -> str:
-    """Compute a deterministic cache key from XDF path, mtime, and run_all params. Returns 16-char hex digest."""
+def _compute_computation_cache_key(xdf_path: Path, params: Dict[str, Any], mtime: Optional[float] = None) -> str:
+    """Compute a deterministic cache key from XDF path and run_all params; optionally include mtime for invalidation when file changes. Returns 16-char hex digest."""
     canonical_path = str(Path(xdf_path).resolve())
     params_json = json.dumps(params, sort_keys=True)
-    payload = f"{canonical_path}|{mtime}|{params_json}"
+    if mtime is not None:
+        payload = f"{canonical_path}|{mtime}|{params_json}"
+    else:
+        payload = f"{canonical_path}|{params_json}"
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
@@ -87,25 +90,37 @@ def _load_computation_history(cache_root: Path) -> pd.DataFrame:
         return pd.DataFrame(columns=COMPUTATION_HISTORY_COLUMNS)
 
 
-def _lookup_cached_result(cache_key_hex: str, cache_root: Path, history_df: pd.DataFrame) -> Optional[Tuple[Path, Optional[str]]]:
-    """If key is in history and result blob exists, return (result_path, fif_filename); else None."""
+def _lookup_cached_result(cache_key_hex: str, cache_root: Path, history_df: pd.DataFrame, xdf_path: Optional[Path] = None) -> Optional[Tuple[Path, Optional[str]]]:
+    """If key is in history and result blob exists, return (result_path, fif_filename); else None. If xdf_path is given and key lookup misses, try matching by canonical path so entries stored with mtime in the key still hit."""
     if history_df is None or history_df.empty:
         return None
+
+    def _row_to_result(row: pd.Series) -> Optional[Tuple[Path, Optional[str]]]:
+        result_path = Path(row["result_path"])
+        if not result_path.is_absolute():
+            result_path = (cache_root / result_path).resolve()
+        if not result_path.exists():
+            return None
+        fif_filename = row.get("fif_filename")
+        if pd.isna(fif_filename) or fif_filename == "":
+            fif_filename = None
+        else:
+            fif_filename = str(fif_filename)
+        return (result_path, fif_filename)
+
     rows = history_df.loc[history_df["cache_key_hex"] == cache_key_hex]
-    if rows.empty:
-        return None
-    row = rows.iloc[0]
-    result_path = Path(row["result_path"])
-    if not result_path.is_absolute():
-        result_path = (cache_root / result_path).resolve()
-    if not result_path.exists():
-        return None
-    fif_filename = row.get("fif_filename")
-    if pd.isna(fif_filename) or fif_filename == "":
-        fif_filename = None
-    else:
-        fif_filename = str(fif_filename)
-    return (result_path, fif_filename)
+    if not rows.empty:
+        out = _row_to_result(rows.iloc[0])
+        if out is not None:
+            return out
+    if xdf_path is not None:
+        canonical = str(Path(xdf_path).resolve())
+        path_match = history_df.loc[history_df["xdf_path"].astype(str).str.strip() == canonical]
+        if not path_match.empty:
+            out = _row_to_result(path_match.iloc[0])
+            if out is not None:
+                return out
+    return None
 
 
 def _load_result_from_cache(result_path: Path) -> dict:
@@ -121,6 +136,7 @@ def _save_result_to_cache(cache_key_hex: str, result: dict, xdf_path: Path, mtim
     result_path = cache_root / f"{cache_key_hex}.pkl"
     with open(result_path, "wb") as f:
         pickle.dump(result, f)
+    print(f"  Cache save: wrote result to {result_path.resolve().as_posix()}")
     params_json = json.dumps(params, sort_keys=True)
     xdf_path_str = str(Path(xdf_path).resolve())
     result_path_str = str(result_path.resolve())
@@ -836,6 +852,8 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
         should_load_preprocessed: bool = False,
         use_computation_cache: bool = True,
         cache_root: Optional[Path] = None,
+        use_mtime_in_cache_key: bool = False,
+        absolute_max_workers: int = 2,
     ):
     """ 
 
@@ -848,7 +866,10 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
     computation_history_df: pd.DataFrame = _load_computation_history(cache_root) if use_computation_cache else pd.DataFrame(columns=COMPUTATION_HISTORY_COLUMNS)
     history_append_lock: threading.Lock = threading.Lock() if use_computation_cache else None
     run_all_params: Dict[str, Any] = {"mask_bad_annotated_times": False}
-
+    if use_computation_cache:
+        history_path = cache_root / "computation_history.csv"
+        n_entries = len(computation_history_df)
+        print(f"Computation cache: root={cache_root.resolve().as_posix()}, history exists={history_path.exists()}, entries={n_entries}")
 
     # SavedSessionProcessor
 
@@ -891,7 +912,9 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
         labRecorder_PostProcessed_path.mkdir(exist_ok=True)
 
     # Determine optimal number of workers
-    max_workers = min(len(lab_recorder_xdf_files), (os.cpu_count() or 4))
+    cpu_count: int = (os.cpu_count() or 2)
+    absolute_max_workers = min(absolute_max_workers, cpu_count)
+    max_workers = min(len(lab_recorder_xdf_files), absolute_max_workers)
     print(f"Processing {len(lab_recorder_xdf_files)} XDF files using {max_workers} parallel workers...")
 
     # Initialize result containers
@@ -910,10 +933,11 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
             if use_computation_cache:
                 try:
                     xdf_mtime = a_xdf_file.stat().st_mtime
-                    cache_key_hex = _compute_computation_cache_key(a_xdf_file, xdf_mtime, run_all_params)
-                    looked_up = _lookup_cached_result(cache_key_hex, cache_root, computation_history_df)
+                    cache_key_hex = _compute_computation_cache_key(a_xdf_file, run_all_params, mtime=xdf_mtime if use_mtime_in_cache_key else None)
+                    looked_up = _lookup_cached_result(cache_key_hex, cache_root, computation_history_df, xdf_path=a_xdf_file)
                     if looked_up is not None:
                         result_path, _ = looked_up
+                        print(f'  Cache hit: loading result from {result_path.as_posix()}')
                         result = _load_result_from_cache(result_path)
                         _obj = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=a_xdf_file)
                         stream_infos = _obj.stream_infos
@@ -1007,7 +1031,7 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
             if use_computation_cache and result is not None and history_append_lock is not None:
                 try:
                     xdf_mtime = a_xdf_file.stat().st_mtime
-                    cache_key_hex = _compute_computation_cache_key(a_xdf_file, xdf_mtime, run_all_params)
+                    cache_key_hex = _compute_computation_cache_key(a_xdf_file, run_all_params, mtime=xdf_mtime if use_mtime_in_cache_key else None)
                     fif_filename = None
                     for k, v in stream_infos.items():
                         if isinstance(k, str) and "proccessed" in k and "filename" in k and v is not None and str(v).strip() != "":
@@ -1114,18 +1138,19 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
 
 if __name__ == "__main__":
 
-    # n_most_recent_sessions_to_preprocess: int = None # None means all sessions
+    n_most_recent_sessions_to_preprocess: int = None # None means all sessions
     # n_most_recent_sessions_to_preprocess: int = 35
-    n_most_recent_sessions_to_preprocess: int = 15
+    # n_most_recent_sessions_to_preprocess: int = 15
 
     should_load_preprocessed: bool = False
     # should_load_preprocessed: bool = True
 
-    # should_write_final_merged_eeg_fif: bool = False
-    should_write_final_merged_eeg_fif: bool = True
+    should_write_final_merged_eeg_fif: bool = False
+    # should_write_final_merged_eeg_fif: bool = True
 
     should_export_html_histograms: bool = False
 
+    absolute_max_workers: int = 2
 
     # included_xdf_file_names = [
     # 	"E:/Dropbox (Personal)/Databases/UnparsedData/LabRecorderStudies/sub-P001/LabRecorder_Apogee_2025-10-21T051157.400Z_eeg.xdf", ## When it started to work
@@ -1157,6 +1182,7 @@ if __name__ == "__main__":
                                                                                                                 n_most_recent_sessions_to_preprocess=n_most_recent_sessions_to_preprocess,
                                                                                                                 should_write_final_merged_eeg_fif=should_write_final_merged_eeg_fif,
                                                                                                                 should_load_preprocessed=should_load_preprocessed,
+                                                                                                                absolute_max_workers=absolute_max_workers,
     )
 
     ## Extract comments/notes/annotations/etc from the outputs
