@@ -1318,7 +1318,17 @@ if __name__ == "__main__":
     if should_export_html_histograms:
         print(f'Individual HTML spectrograms: {html_output_folder} ({len(html_files)} files)')
     print(f'Session summary metrics CSV: {summary_csv_path}')
-    print(f'Spectrograms for Rerun: {spectrograms_npz_dir if spectrograms_npz_paths else "failed"}{f" ({len(spectrograms_npz_paths)} .npz files)" if spectrograms_npz_paths else ""} (run: uv run --project rerun -- python rerun/view_spectrograms_rerun.py "<path.npz>" then open the .rrd with rerun)')
+
+
+    'python .\\view_spectrograms_rerun.py "L:\AITEMP\PhoOfflineEEGAnalysisOutputs\2026-02-19_spectrograms_2026-02-18T20-43-55.npz" --spawn'
+    print(f'Spectrograms for Rerun: {spectrograms_npz_dir if spectrograms_npz_paths else "failed"}{f" ({len(spectrograms_npz_paths)} .npz files)" if spectrograms_npz_paths else ""} (run: uv run --project rerun -- python rerun/view_spectrograms_rerun.py "{spectrograms_npz_dir if spectrograms_npz_paths}" then open the .rrd with rerun)')
+    
+    if spectrograms_npz_paths:
+        print(f'Spectrograms for Rerun: {spectrograms_npz_paths} {f" ({len(spectrograms_npz_paths)} .npz files)" if (len(spectrograms_npz_paths) > 1) else ""}')
+        print(f'\tuv run --project rerun -- python rerun/view_spectrograms_rerun.py "{spectrograms_npz_dir}"')
+    else:
+        print(f'Spectrograms for Rerun: failed')
+
     print(f'Spectrograms HDF5 (interchange): {spectrograms_h5_path if spectrograms_h5_path else "failed"}')
     print(f'Spectrograms NetCDF (interchange): {spectrograms_nc_path if spectrograms_nc_path else "failed"}')
     print(f'Spectrograms Parquet (interchange): {spectrograms_parquet_path if spectrograms_parquet_path else "failed"}')
