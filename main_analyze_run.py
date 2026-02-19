@@ -1138,8 +1138,8 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
 
 if __name__ == "__main__":
 
-    n_most_recent_sessions_to_preprocess: int = None # None means all sessions
-    # n_most_recent_sessions_to_preprocess: int = 35
+    # n_most_recent_sessions_to_preprocess: int = None # None means all sessions
+    n_most_recent_sessions_to_preprocess: int = 55
     # n_most_recent_sessions_to_preprocess: int = 15
 
     should_load_preprocessed: bool = False
@@ -1319,10 +1319,8 @@ if __name__ == "__main__":
         print(f'Individual HTML spectrograms: {html_output_folder} ({len(html_files)} files)')
     print(f'Session summary metrics CSV: {summary_csv_path}')
 
-
-    'python .\\view_spectrograms_rerun.py "L:\AITEMP\PhoOfflineEEGAnalysisOutputs\2026-02-19_spectrograms_2026-02-18T20-43-55.npz" --spawn'
-    print(f'Spectrograms for Rerun: {spectrograms_npz_dir if spectrograms_npz_paths else "failed"}{f" ({len(spectrograms_npz_paths)} .npz files)" if spectrograms_npz_paths else ""} (run: uv run --project rerun -- python rerun/view_spectrograms_rerun.py "{spectrograms_npz_dir if spectrograms_npz_paths}" then open the .rrd with rerun)')
-    
+    # 'python .\\view_spectrograms_rerun.py "L:\AITEMP\PhoOfflineEEGAnalysisOutputs\2026-02-19_spectrograms_2026-02-18T20-43-55.npz" --spawn'
+    # print(f'Spectrograms for Rerun: {spectrograms_npz_dir if spectrograms_npz_paths else "failed"}{f" ({len(spectrograms_npz_paths)} .npz files)" if spectrograms_npz_paths else ""} (run: uv run --project rerun -- python rerun/view_spectrograms_rerun.py "{spectrograms_npz_dir if spectrograms_npz_paths}" then open the .rrd with rerun)')
     if spectrograms_npz_paths:
         print(f'Spectrograms for Rerun: {spectrograms_npz_paths} {f" ({len(spectrograms_npz_paths)} .npz files)" if (len(spectrograms_npz_paths) > 1) else ""}')
         print(f'\tuv run --project rerun -- python rerun/view_spectrograms_rerun.py "{spectrograms_npz_dir}"')
