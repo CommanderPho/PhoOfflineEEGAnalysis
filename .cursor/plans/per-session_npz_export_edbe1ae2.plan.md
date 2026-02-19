@@ -9,7 +9,7 @@ isProject: false
 
 ## Current behavior
 
-- [main_analyze_run.py](c:\Users\pho\repos\ACTIVE_DEV\PhoOfflineEEGAnalysis\src\phoofflineeeganalysis\main_analyze_run.py): A single file `{export_date_prefix}spectrograms_export.npz` is written by `export_spectrograms_for_rerun()` (lines 492–437). It packs all sessions into one dict with keys `s0_meas_date_sec`, `s0_channel_names`, …, `s1_...`, …, `session_indices`, and calls `np.savez_compressed(output_path, **export_dict)` once.
+- [main_analyze_run.py](c:\Users\pho\repos\ACTIVE_DEV\PhoOfflineEEGAnalysis\main_analyze_run.py): A single file `{export_date_prefix}spectrograms_export.npz` is written by `export_spectrograms_for_rerun()` (lines 492–437). It packs all sessions into one dict with keys `s0_meas_date_sec`, `s0_channel_names`, …, `s1_...`, …, `session_indices`, and calls `np.savez_compressed(output_path, **export_dict)` once.
 - [rerun/view_spectrograms_rerun.py](c:\Users\pho\repos\ACTIVE_DEV\PhoOfflineEEGAnalysis\rerun\view_spectrograms_rerun.py): Loads one .npz, reads `session_indices`, then for each index loads `s{idx}_meas_date_sec`, `s{idx}_channel_names`, `s{idx}_Sxx` and logs to Rerun. A single-session file with `session_indices = [0]` and `s0_*` keys is already valid.
 
 ## Target behavior
@@ -30,7 +30,7 @@ isProject: false
   - Append the path to the list to return. On skip (exception or no spectogram), do not write a file for that session; optionally log and continue.
 - **Docstring**: Update to state that one .npz is written per session under `output_dir`, and that each file can be passed to `view_spectrograms_rerun.py` independently.
 
-### 2. Update `__main__` in main_analyze_run.py
+### 2. Update `__main`__ in main_analyze_run.py
 
 - **Export call** (around 1243–1245): Use an output directory instead of a single path, e.g. `spectrograms_npz_dir = outputs_root_folder` or a subfolder like `outputs_root_folder.joinpath("spectrograms_npz")`. Call:
   - `spectrograms_npz_paths = export_spectrograms_for_rerun(..., output_dir=spectrograms_npz_dir, filename_prefix=export_date_prefix, ...)`.
@@ -46,8 +46,8 @@ isProject: false
 
 | File                                                                                                                     | Change                                                                                                                                                                                                    |
 | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [main_analyze_run.py](c:\Users\pho\repos\ACTIVE_DEV\PhoOfflineEEGAnalysis\src\phoofflineeeganalysis\main_analyze_run.py)                           | `export_spectrograms_for_rerun`: write one .npz per session in `output_dir` with stable names; return `List[Path]`. `__main`__: pass `output_dir` and `filename_prefix`, use returned list for reporting. |
-| [rerun/view_spectrograms_rerun.py](c:\Users\pho\repos\ACTIVE_DEV\PhoOfflineEEGAnalysis\rerun\view_spectrograms_rerun.py) | No change required (single-session .npz with `s0_*` and `session_indices=[0]` already works).                                                                                                             |
+| [main_analyze_run.py](c:\Users\pho\repos\ACTIVE_DEV\PhoOfflineEEGAnalysis\main_analyze_run.py)                           | `export_spectrograms_for_rerun`: write one .npz per session in `output_dir` with stable names; return `List[Path]`. `__main`__: pass `output_dir` and `filename_prefix`, use returned list for reporting. |
+| [rerun/view_spectrograms_rerun.py](c:\Users\pho\repos\ACTIVE_DEV\PhoOfflineEEGAnalysis\rerun\view_spectrograms_rerun.py) | No change required (single-session .npz with `s0`_* and `session_indices=[0]` already works).                                                                                                             |
 
 
 ## Naming detail

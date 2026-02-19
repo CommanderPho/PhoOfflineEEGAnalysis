@@ -490,18 +490,17 @@ def export_combined_spectrograms_html(active_only_out_eeg_raws, results, output_
     return output_path
 
 
-def export_spectrograms_for_rerun(active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0) -> Path:
+def export_spectrograms_for_rerun(active_only_out_eeg_raws, results, output_dir: Path, freq_min: float = 1.0, freq_max: float = 40.0, filename_prefix: str = "") -> List[Path]:
     """
-    Export spectrograms and session datetimes to a NumPy .npz file for later viewing in Rerun (e.g. via view_spectrograms_rerun.py).
+    Export spectrograms and session datetimes to one NumPy .npz file per session under output_dir for later viewing in Rerun (e.g. via view_spectrograms_rerun.py).
 
-    Saves per-session: meas_date_sec (Unix timestamp), channel names, freqs, times, and Sxx (n_channels x n_freqs x n_times).
-    Frequency range is restricted to [freq_min, freq_max]. Run analysis, then in another process run:
-    python view_spectrograms_rerun.py <output_path.npz> (or open the generated .rrd with `rerun …`).
+    Each file contains: freq_min, freq_max, session_indices=[0], s0_meas_date_sec, s0_channel_names, s0_freqs, s0_times, s0_Sxx.
+    Frequency range is restricted to [freq_min, freq_max]. Each .npz can be passed to view_spectrograms_rerun.py independently.
     """
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    export_dict = {"freq_min": np.array(freq_min), "freq_max": np.array(freq_max)}
-    session_indices = []
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    written_paths: List[Path] = []
+    used_session_ids: set = set()
     for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
         try:
             if a_result is None or "spectogram" not in a_result:
@@ -509,10 +508,17 @@ def export_spectrograms_for_rerun(active_only_out_eeg_raws, results, output_path
             meas_date = a_raw.info.get("meas_date")
             if meas_date is None:
                 meas_date_sec = float("nan")
+                session_id = f"session_{idx:03d}"
             else:
                 if getattr(meas_date, "tzinfo", None) is None:
                     meas_date = meas_date.replace(tzinfo=timezone.utc)
                 meas_date_sec = meas_date.timestamp()
+                session_id = meas_date.strftime("%Y-%m-%dT%H-%M-%S")
+            base_id = session_id
+            while session_id in used_session_ids:
+                suffix = sum(1 for s in used_session_ids if s == base_id or (isinstance(s, str) and s.startswith(base_id + "_")))
+                session_id = f"{base_id}_{suffix}"
+            used_session_ids.add(session_id)
             spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
             channel_names = np.array(list(spectogram_result_dict.keys()), dtype=object)
             f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
@@ -524,19 +530,22 @@ def export_spectrograms_for_rerun(active_only_out_eeg_raws, results, output_path
                 f, t, Sxx = spectogram_result_dict[ch_name]
                 Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
             Sxx_stack = np.stack(Sxx_list, axis=0)
-            export_dict[f"s{idx}_meas_date_sec"] = np.array(meas_date_sec)
-            export_dict[f"s{idx}_channel_names"] = channel_names
-            export_dict[f"s{idx}_freqs"] = freqs
-            export_dict[f"s{idx}_times"] = times
-            export_dict[f"s{idx}_Sxx"] = Sxx_stack
-            session_indices.append(idx)
+            export_dict = {"freq_min": np.array(freq_min), "freq_max": np.array(freq_max), "session_indices": np.array([0])}
+            export_dict["s0_meas_date_sec"] = np.array(meas_date_sec)
+            export_dict["s0_channel_names"] = channel_names
+            export_dict["s0_freqs"] = freqs
+            export_dict["s0_times"] = times
+            export_dict["s0_Sxx"] = Sxx_stack
+            session_filename = f"{filename_prefix}spectrograms_{session_id}.npz"
+            out_path = output_dir / session_filename
+            np.savez_compressed(out_path, **export_dict)
+            written_paths.append(out_path)
         except Exception as e:
             print(f"  WARN: export_spectrograms_for_rerun skipped session {idx}: {e}")
             continue
-    export_dict["session_indices"] = np.array(session_indices)
-    np.savez_compressed(output_path, **export_dict)
-    print(f"Exported spectrograms for Rerun to: {output_path.as_posix()}")
-    return output_path
+    if written_paths:
+        print(f"Exported {len(written_paths)} spectrogram .npz file(s) for Rerun to: {output_dir.as_posix()}")
+    return written_paths
 
 
 def export_spectrograms_hdf5(active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0, stream_infos_df: Optional[pd.DataFrame] = None) -> Path:
@@ -1236,16 +1245,16 @@ if __name__ == "__main__":
 
 
     # Export spectrograms + datetime for Rerun (view in another process: python view_spectrograms_rerun.py <path.npz> or rerun <path.rrd>)
-    spectrograms_npz_path = None
+    spectrograms_npz_dir = outputs_root_folder
+    spectrograms_npz_paths = None
     spectrograms_h5_path = None
     spectrograms_nc_path = None
     spectrograms_parquet_path = None
     try:
-        spectrograms_npz_path = outputs_root_folder.joinpath(f"{export_date_prefix}spectrograms_export.npz")
-        export_spectrograms_for_rerun(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_npz_path, freq_min=1.0, freq_max=40.0)
+        spectrograms_npz_paths = export_spectrograms_for_rerun(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_dir=spectrograms_npz_dir, freq_min=1.0, freq_max=40.0, filename_prefix=export_date_prefix)
     except Exception as e:
         print(f"  Export failed (Rerun .npz): {e}")
-        spectrograms_npz_path = None
+        spectrograms_npz_paths = None
     try:
         spectrograms_h5_path = outputs_root_folder.joinpath(f"{export_date_prefix}spectrograms_export.h5")
         export_spectrograms_hdf5(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_h5_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df)
@@ -1283,7 +1292,7 @@ if __name__ == "__main__":
     if should_export_html_histograms:
         print(f'Individual HTML spectrograms: {html_output_folder} ({len(html_files)} files)')
     print(f'Session summary metrics CSV: {summary_csv_path}')
-    print(f'Spectrograms for Rerun: {spectrograms_npz_path if spectrograms_npz_path else "failed"} (run: uv run --project rerun -- python examples_jupyter/view_spectrograms_rerun.py "<path.npz>" then open the .rrd with rerun)')
+    print(f'Spectrograms for Rerun: {spectrograms_npz_dir if spectrograms_npz_paths else "failed"}{f" ({len(spectrograms_npz_paths)} .npz files)" if spectrograms_npz_paths else ""} (run: uv run --project rerun -- python rerun/view_spectrograms_rerun.py "<path.npz>" then open the .rrd with rerun)')
     print(f'Spectrograms HDF5 (interchange): {spectrograms_h5_path if spectrograms_h5_path else "failed"}')
     print(f'Spectrograms NetCDF (interchange): {spectrograms_nc_path if spectrograms_nc_path else "failed"}')
     print(f'Spectrograms Parquet (interchange): {spectrograms_parquet_path if spectrograms_parquet_path else "failed"}')
