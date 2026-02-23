@@ -103,9 +103,18 @@ phopylslhelper = { path = "../PhoPyLSLhelper", editable = true }
 phopymnehelper = { path = "../PhoPyMNEHelper", editable = true }
 py-pho-timeline = { path = "../pyPhoTimeline", editable = true }
 
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
+
 [dependency-groups]
 debug = [
     "viztracer>=1.1.1",
+]
+dev = [
+    "pyrefly>=0.53.0",
 ]
 trial = [
     "opentimelineio>=0.18.1",

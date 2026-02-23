@@ -1040,7 +1040,7 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
         use_mtime_in_cache_key: bool = False,
         absolute_max_workers: int = 2,
     ):
-    """ 
+    """ Processes a single .xdf file independently to produce all exports
 
         from PhoOfflineEEGAnalysis.examples_jupyter.main_analyze_run import process_XDFs_main
 
@@ -1338,8 +1338,9 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
 if __name__ == "__main__":
 
     # n_most_recent_sessions_to_preprocess: int = None # None means all sessions
-    n_most_recent_sessions_to_preprocess: int = 55
+    # n_most_recent_sessions_to_preprocess: int = 55
     # n_most_recent_sessions_to_preprocess: int = 15
+    n_most_recent_sessions_to_preprocess: int = 5
 
     should_load_preprocessed: bool = False
     # should_load_preprocessed: bool = True
@@ -1347,9 +1348,9 @@ if __name__ == "__main__":
     should_write_final_merged_eeg_fif: bool = False
     # should_write_final_merged_eeg_fif: bool = True
 
-    should_export_html_histograms: bool = False
+    should_export_html_histograms: bool = True
 
-    absolute_max_workers: int = 2
+    absolute_max_workers: int = 4
 
     # included_xdf_file_names = [
     # 	"E:/Dropbox (Personal)/Databases/UnparsedData/LabRecorderStudies/sub-P001/LabRecorder_Apogee_2025-10-21T051157.400Z_eeg.xdf", ## When it started to work
