@@ -30,3 +30,13 @@ uv run --project rerun -- python rerun/rerun_loader_xdf.py path/to/recording.xdf
 - **Windows:** Create a batch file or script named `rerun-loader-xdf.cmd` (or `rerun-loader-xdf`) on PATH that runs `uv run --project c:\path\to\PhoOfflineEEGAnalysis\rerun -- python c:\path\to\PhoOfflineEEGAnalysis\rerun\rerun_loader_xdf.py %*`.
 
 After installation, opening an .xdf file in the Rerun Viewer (e.g. drag-and-drop or File > Open) will use this loader and display the streams.
+
+
+## Installation on Windows
+```ps1
+pyinstaller .\rerun_loader_xdf.py -n rerun-loader-xdf-file --onefile
+
+$env:Path += ";C:\Users\pho\repos\EmotivEpoc\ACTIVE_DEV\PhoOfflineEEGAnalysis\rerun\dist\rerun-loader-xdf-file.exe"
+```
+
+`C:\Users\pho\repos\EmotivEpoc\ACTIVE_DEV\PhoOfflineEEGAnalysis\rerun\dist`
