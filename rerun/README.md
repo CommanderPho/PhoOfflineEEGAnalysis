@@ -16,7 +16,13 @@ Options: `--save` / `-o` (output .rrd path), `--no-spawn` (do not open viewer), 
 
 ## XDF data loader plugin (`rerun_loader_xdf.py`)
 
-External data loader that lets you **open .xdf files directly in the Rerun Viewer** (open dialog, drag-and-drop, or `rerun file.xdf`). Logs each XDF stream as one entity with multi-channel scalars (IMU-style).
+External data loader that lets you **open .xdf files directly in the Rerun Viewer** (open dialog, drag-and-drop, or `rerun file.xdf`). The viewer shows **two time-series plots** (EEG and MOTION) and **one merged Text panel**:
+
+- **EEG** – one panel with channels from the first EEG stream (e.g. Epoc X).
+- **MOTION** – one panel with channels from the first MOTION stream (e.g. Epoc X Motion).
+- **Text** – one panel with all log entries from TextLogger and EventBoard streams merged and sorted by time.
+
+When multiple EEG or multiple MOTION streams exist, only the first of each type is shown.
 
 **Run standalone from project root:**
 

@@ -94,6 +94,15 @@ def _channel_labels_from_stream(stream: dict, n_channels: int) -> list[str]:
         return [f"ch_{i}" for i in range(n_channels)]
 
 
+# Stream name -> modality for EEG/MOTION/TEXT (aligned with xdf_files.stream_name_to_modality_dict). Other names are not logged.
+STREAM_NAME_TO_MODALITY = {"Epoc X": "EEG", "Epoc X Motion": "MOTION", "TextLogger": "TEXT", "EventBoard": "TEXT"}
+
+
+def _stream_modality(stream: dict) -> str | None:
+    """Return 'EEG', 'MOTION', 'TEXT', or None from stream name (no external deps)."""
+    return STREAM_NAME_TO_MODALITY.get(_stream_name(stream))
+
+
 def _stream_name(stream: dict) -> str:
     """Get a short stream name for entity path."""
     try:
@@ -105,8 +114,25 @@ def _stream_name(stream: dict) -> str:
     return "stream"
 
 
-def _log_xdf_streams_imu_style(streams: list, header: dict | None, entity_path_prefix: str) -> None:
-    """Log each numeric XDF stream as one entity with multi-channel scalars (IMU-style)."""
+def _global_t0_from_streams(streams: list) -> float:
+    """Minimum first timestamp across all streams that have time_stamps (for shared timeline)."""
+    t0_candidates = []
+    for stream in streams:
+        if not stream:
+            continue
+        ts = stream.get("time_stamps")
+        if ts is None or (hasattr(ts, "__len__") and len(ts) == 0):
+            continue
+        ts = np.asarray(ts).flatten()
+        if ts.size > 0:
+            t0_candidates.append(float(ts[0]))
+    return min(t0_candidates) if t0_candidates else 0.0
+
+
+def _log_xdf_streams_imu_style(streams: list, entity_path_prefix: str, t0: float) -> None:
+    """Log first EEG at xdf/EEG and first MOTION at xdf/MOTION with shared t0 (one time-series panel each)."""
+    prefix = f"{entity_path_prefix}xdf/".replace("//", "/")
+    logged = {"EEG": False, "MOTION": False}
     for stream in streams:
         if not stream or len(stream.get("time_series", [])) == 0:
             continue
@@ -117,13 +143,45 @@ def _log_xdf_streams_imu_style(streams: list, header: dict | None, entity_path_p
             continue
         if not np.issubdtype(time_series.dtype, np.number):
             continue
-        t0 = float(time_stamps[0])
+        modality = _stream_modality(stream)
+        if modality not in ("EEG", "MOTION") or logged[modality]:
+            continue
         time_sec = (time_stamps - t0).astype(np.float64)
-        safe_name = _sanitize_entity_name(_stream_name(stream))
-        path = f"{entity_path_prefix}xdf/{safe_name}".replace("//", "/")
+        path = f"{prefix}{modality}"
         channel_labels = _channel_labels_from_stream(stream, n_channels)
         rr.send_columns(path, indexes=[rr.TimeColumn("time_sec", duration=time_sec)], columns=rr.Scalars.columns(scalars=time_series))
         rr.log(path, rr.SeriesLines(names=channel_labels), static=True)
+        logged[modality] = True
+        if logged["EEG"] and logged["MOTION"]:
+            break
+
+
+def _log_xdf_text_streams_merged(streams: list, entity_path_prefix: str, t0: float, text_stream_names: list[str] | None = None) -> None:
+    """Merge all TextLogger/EventBoard streams into one entity; log (t_sec, text) sorted by time to xdf/Text."""
+    if text_stream_names is None:
+        text_stream_names = ["TextLogger", "EventBoard"]
+    path = f"{entity_path_prefix}xdf/Text".replace("//", "/")
+    entries = []
+    for stream in streams:
+        if not stream or _stream_name(stream) not in text_stream_names:
+            continue
+        time_series = stream.get("time_series")
+        if time_series is None or (hasattr(time_series, "__len__") and len(time_series) == 0):
+            continue
+        time_series = np.asarray(time_series)
+        if time_series.ndim > 1:
+            time_series = time_series.ravel()
+        time_stamps = np.asarray(stream["time_stamps"]).flatten()
+        n = min(len(time_stamps), len(time_series))
+        for i in range(n):
+            t_sec = float(time_stamps[i] - t0)
+            val = time_series[i]
+            text = str(val) if np.isscalar(val) else (str(val.tolist()) if hasattr(val, "tolist") else str(val))
+            entries.append((t_sec, text))
+    entries.sort(key=lambda x: x[0])
+    for t_sec, text in entries:
+        rr.set_time_seconds("time_sec", t_sec)
+        rr.log(path, rr.TextLog(text))
 
 
 def main() -> int:
@@ -164,7 +222,9 @@ def main() -> int:
     rr.stdout()
 
     prefix = (args.entity_path_prefix.rstrip("/") + "/") if args.entity_path_prefix else ""
-    _log_xdf_streams_imu_style(streams, header, prefix)
+    t0 = _global_t0_from_streams(streams)
+    _log_xdf_streams_imu_style(streams, prefix, t0)
+    _log_xdf_text_streams_merged(streams, prefix, t0)
     return 0
 
 

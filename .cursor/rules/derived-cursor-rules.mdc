@@ -1,6 +1,6 @@
 ---
 description: AI rules derived by SpecStory from the project AI interaction history
-globs: *
+applyTo: *
 ---
 
 ## PROJECT OVERVIEW
@@ -26,7 +26,10 @@ This document defines the rules and guidelines for the AI coding assistant in th
 
 ## PROJECT-SPECIFIC STANDARDS
 
-(This section is currently empty, but will be populated as project-specific standards are established.)
+- When analyzing EEG data from long .xdf recordings in `main_analyze_run.py`, bad channels should be detected using the typical MNE approach, but with consideration for the dynamic nature of channel quality. The determination of whether a channel is "good" or "bad" should not be assumed to be constant over the entire recording. Channels can transition between good and bad states (e.g., due to electrode drying or repositioning).
+- `rerun_loader_xdf.py` should, by default, load the correct session/recording datetime metadata and channel names for the .xdf exactly how XDF files are loaded in `main_analyze_run.py`. The rerun-specific logic from `main_analyze_run.py` should not be implemented in `rerun_loader_xdf.py`, only the correct channel naming/metadata loading.
+- XDF loading in `main_analyze_run.py` goes through `LabRecorderXDF` and `XDFDataStreamAccessor` from `phoofflineeeganalysis.analysis.xdf_files`.
+- When plotting EEG and MOTION channels, they must be displayed on separate plots.
 
 ## WORKFLOW & RELEASE RULES
 
@@ -260,6 +263,12 @@ By stepping through the logic and checking types, you should be able to pinpoint
 - The user reported an `AttributeError: module 'rerun' has no attribute 'TextLog'`. This indicates that the installed `rerun-sdk` version is older than expected (likely 0.6, predating the `TextLog` API). To address this:
    - A compatibility helper `_set_time_sec(t_sec: float)` was added to `src/phoofflineeeganalysis/converters/xdf_to_rerun.py` to handle potential differences in the time-setting API.
    - A fallback mechanism using `rr.log_text_entry(entity, text)` was implemented for text-based marker streams within the `_stream_markers_to_rerun` function to ensure compatibility with older `rerun-sdk` versions.
+- When the Rerun Viewer calls the external loader (e.g., `rerun-loader-xdf-file.exe`), it may pass additional arguments that the loader doesn't recognize, leading to an error. Ensure that the loader is prepared to handle these additional arguments or ignore them gracefully. The loader only needs to accept:
+    - `filepath` (required, positional)
+    - `--recording-id` (optional)
+    - `--application-id` (optional)
+    - `--entity-path-prefix` (optional)
+    and can ignore other arguments such as `--opened-application-id` and `--opened-recording-id`.
 
 ## FINAL DOs AND DON'Ts
 
@@ -452,32 +461,4 @@ def export_eeg_dataset_to_airtable(raw: mne.io.BaseRaw,
 def export_multiple_eeg_datasets_to_airtable(raws: List[mne.io.BaseRaw],
                                              airtable_base_id: str,
                                              airtable_table_name: str,
-                                             airtable_api_key: str,
-                                             xdf_file_paths: Optional[List[Path]] = None,
-                                             additional_fields_list: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
-    """
-    Export multiple EEG datasets to Airtable.
-    
-    Args:
-        raws: List of MNE Raw objects
-        airtable_base_id: Airtable base ID
-        airtable_table_name: Name of the Airtable table
-        airtable_api_key: Airtable API key
-        xdf_file_paths: Optional list of XDF file paths (must match length of raws)
-        additional_fields_list: Optional list of additional field dictionaries
-        
-    Returns:
-        List of result dictionaries from export_eeg_dataset_to_airtable
-    """
-    results = []
-    
-    for idx, raw in enumerate(raws):
-        xdf_path = xdf_file_paths[idx] if xdf_file_paths and idx < len(xdf_file_paths) else None
-        additional = additional_fields_list[idx] if additional_fields_list and idx < len(additional_fields_list) else None
-        
-        result = export_eeg_dataset_to_airtable(
-            raw=raw,
-            airtable_base_id=airtable_base_id,
-            airtable_table_name=airtable_table_name,
-            airtable_api_key=airtable_api_key,
-            xdf_file_path=xdf_path,
+                                             airtable_
