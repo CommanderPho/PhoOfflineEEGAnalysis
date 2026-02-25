@@ -23,11 +23,30 @@ import argparse
 import os
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import pyxdf
 import rerun as rr
+
+
+def _file_datetime_from_header(header: dict | None) -> datetime | None:
+    """Parse XDF header session datetime (same as LabRecorderXDF). Returns UTC datetime or None."""
+    if not header:
+        return None
+    try:
+        info = header.get("info") or {}
+        dt_list = info.get("datetime")
+        if not dt_list or not isinstance(dt_list, (list, tuple)) or len(dt_list) < 1:
+            return None
+        dt_str = dt_list[0]
+        if not isinstance(dt_str, str) or not dt_str.strip():
+            return None
+        dt = datetime.strptime(dt_str.strip(), "%Y-%m-%dT%H:%M:%S%z")
+        return dt.astimezone(timezone.utc)
+    except (ValueError, TypeError, IndexError):
+        return None
 
 
 def _sanitize_entity_name(name: str) -> str:
@@ -37,19 +56,42 @@ def _sanitize_entity_name(name: str) -> str:
     return re.sub(r"[\/\\]", "_", name)
 
 
+def _unwrap_label(val) -> str:
+    """Unwrap single-element list/tuple to match LabRecorderXDF (e.g. ['AF3'] -> 'AF3')."""
+    if isinstance(val, (list, tuple)) and len(val) == 1:
+        return str(val[0]) if val[0] is not None else ""
+    if val is None:
+        return ""
+    return str(val)
+
+
 def _channel_labels_from_stream(stream: dict, n_channels: int) -> list[str]:
-    """Derive channel labels from XDF stream info, or ch_0, ch_1, ..."""
+    """Derive channel labels from XDF stream desc (same as LabRecorderXDF), with unwrap; fallback ch_0, ch_1, ..."""
     try:
         desc = stream.get("info", {}).get("desc", [None])
-        if desc and desc[0] is not None:
-            channels = desc[0].get("channels", [None])
-            if channels and channels[0] is not None:
-                ch_list = channels[0].get("channel", [])
-                if isinstance(ch_list, list) and len(ch_list) >= n_channels:
-                    return [str(c.get("label", c) if isinstance(c, dict) else c) for c in ch_list[:n_channels]]
+        if not desc or desc[0] is None:
+            return [f"ch_{i}" for i in range(n_channels)]
+        channels = desc[0].get("channels", [None])
+        if not channels or channels[0] is None:
+            return [f"ch_{i}" for i in range(n_channels)]
+        ch_list = channels[0].get("channel", [])
+        if not isinstance(ch_list, list):
+            return [f"ch_{i}" for i in range(n_channels)]
+        labels = []
+        for i in range(n_channels):
+            if i < len(ch_list):
+                c = ch_list[i]
+                if isinstance(c, dict):
+                    raw = c.get("label", c)
+                    label = _unwrap_label(raw).strip() or f"ch_{i}"
+                else:
+                    label = _unwrap_label(c).strip() or f"ch_{i}"
+                labels.append(label)
+            else:
+                labels.append(f"ch_{i}")
+        return labels
     except Exception:
-        pass
-    return [f"ch_{i}" for i in range(n_channels)]
+        return [f"ch_{i}" for i in range(n_channels)]
 
 
 def _stream_name(stream: dict) -> str:
@@ -79,7 +121,9 @@ def _log_xdf_streams_imu_style(streams: list, header: dict | None, entity_path_p
         time_sec = (time_stamps - t0).astype(np.float64)
         safe_name = _sanitize_entity_name(_stream_name(stream))
         path = f"{entity_path_prefix}xdf/{safe_name}".replace("//", "/")
+        channel_labels = _channel_labels_from_stream(stream, n_channels)
         rr.send_columns(path, indexes=[rr.TimeColumn("time_sec", duration=time_sec)], columns=rr.Scalars.columns(scalars=time_series))
+        rr.log(path, rr.SeriesLines(names=channel_labels), static=True)
 
 
 def main() -> int:
@@ -104,16 +148,20 @@ def main() -> int:
     if not is_file or not is_xdf:
         sys.exit(rr.EXTERNAL_DATA_LOADER_INCOMPATIBLE_EXIT_CODE)
 
-    application_id = args.opened_application_id or args.application_id or "rerun_loader_xdf"
-    recording_id = args.opened_recording_id or args.recording_id
-    rr.init(application_id, recording_id=recording_id)
-    rr.stdout()
-
     try:
         streams, header = pyxdf.load_xdf(filepath, synchronize_clocks=True, handle_clock_resets=True, dejitter_timestamps=False, verbose=False)
     except Exception as e:
         print(f"rerun-loader-xdf: Failed to load XDF: {e}", file=sys.stderr)
         return 1
+
+    application_id = args.opened_application_id or args.application_id or "rerun_loader_xdf"
+    recording_id = args.opened_recording_id or args.recording_id
+    if recording_id is None:
+        file_dt = _file_datetime_from_header(header)
+        if file_dt is not None:
+            recording_id = file_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    rr.init(application_id, recording_id=recording_id)
+    rr.stdout()
 
     prefix = (args.entity_path_prefix.rstrip("/") + "/") if args.entity_path_prefix else ""
     _log_xdf_streams_imu_style(streams, header, prefix)
