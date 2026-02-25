@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "phoofflineeeganalysis-rerun"
 version = "0.1.0"
@@ -5,5 +9,13 @@ description = "Rerun viewer environment for PhoOfflineEEGAnalysis (spectrograms,
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=2.0",
+    "pyinstaller>=6.19.0",
+    "pyxdf>=1.16.8",
     "rerun-sdk>=0.29.0",
 ]
+
+[project.scripts]
+rerun-loader-xdf = "rerun_loader_xdf:main"
+
+[tool.hatch.build]
+include = ["rerun_loader_xdf.py"]

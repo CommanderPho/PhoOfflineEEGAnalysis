@@ -5041,6 +5041,7 @@ dev = [
     { name = "dvc", extras = ["gdrive"], specifier = ">=3.59.0,<4" },
     { name = "ipdb", specifier = ">=0.13.11,<0.14" },
     { name = "pip", specifier = "~=24.0" },
+    { name = "pyrefly", specifier = ">=0.54.0" },
 ]
 
 [[package]]
@@ -6334,6 +6335,9 @@ requires-dist = [
     { name = "vispy", specifier = ">=0.14.0" },
 ]
 
+[package.metadata.requires-dev]
+dev = [{ name = "pyrefly", specifier = ">=0.54.0" }]
+
 [[package]]
 name = "pyaaf2"
 version = "1.7.1"
@@ -7007,6 +7011,7 @@ dev = [
     { name = "dvc", extras = ["gdrive"], specifier = ">=3.59.0,<4" },
     { name = "ipython", specifier = ">=8.9.0,<9" },
     { name = "pyan", specifier = ">=0.1.3,<0.2" },
+    { name = "pyrefly", specifier = ">=0.54.0" },
     { name = "pytest", specifier = ">=7.2.1,<8" },
     { name = "setuptools", specifier = ">=78.1.0" },
     { name = "snakeviz", specifier = ">=2.1.1,<3" },
