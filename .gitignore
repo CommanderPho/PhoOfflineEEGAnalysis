@@ -23,3 +23,5 @@ templating/uv_deps_switcher
 viztracer_*.json
 timeline_export.json
 rerun/EXAMPLES
+rerun/build
+rerun/dist/rerun-loader-xdf-file.exe
