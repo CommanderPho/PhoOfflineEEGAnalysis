@@ -291,6 +291,30 @@ def compute_session_summary_metrics(active_only_out_eeg_raws, results, stream_in
     return csv_path
 
 
+def _get_channel_bad_intervals(raw: mne.io.BaseRaw, channel_names: List[str]) -> Dict[str, List[Tuple[float, float]]]:
+    """Build per-channel bad (onset, end) intervals in seconds from raw.annotations (BAD_* descriptions, optional ch_names)."""
+    out: Dict[str, List[Tuple[float, float]]] = {ch: [] for ch in channel_names}
+    if raw.annotations is None or len(raw.annotations) == 0:
+        return out
+    ch_names_attr = getattr(raw.annotations, "ch_names", None)
+    for i in range(len(raw.annotations)):
+        desc = raw.annotations.description[i]
+        if not (isinstance(desc, str) and desc.upper().startswith("BAD_")):
+            continue
+        onset = float(raw.annotations.onset[i])
+        duration = float(raw.annotations.duration[i])
+        end = onset + duration
+        seg_ch_names = ch_names_attr[i] if (ch_names_attr is not None and i < len(ch_names_attr)) else None
+        if not isinstance(seg_ch_names, (list, tuple)) or len(seg_ch_names) == 0:
+            for ch in channel_names:
+                out[ch].append((onset, end))
+        else:
+            for ch in seg_ch_names:
+                if ch in out:
+                    out[ch].append((onset, end))
+    return out
+
+
 def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_folder: Path,
                                      freq_min: float = 1.0, freq_max: float = 40.0, filename_prefix: str = ""):
     """
@@ -337,6 +361,7 @@ def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_f
             # Extract spectrogram data
             spectogram_result_dict = a_result['spectogram']['spectogram_result_dict']
             fs = a_result['spectogram']['fs']
+            channel_bad_intervals = _get_channel_bad_intervals(a_raw, list(spectogram_result_dict.keys()))
             
             # Create HoloViews plots for each channel
             channel_plots = []
@@ -375,7 +400,23 @@ def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_f
                                    ('Power', '@image{0.2f}dB')]
                 )
                 
-                channel_plots.append(img)
+                bad_intervals = channel_bad_intervals.get(ch_name, [])
+                t_min, t_max = float(np.min(t)), float(np.max(t))
+                f_min, f_max = float(f_filtered.min()), float(f_filtered.max())
+                if bad_intervals:
+                    rect_data = []
+                    for start, end in bad_intervals:
+                        start_c = max(start, t_min)
+                        end_c = min(end, t_max)
+                        if start_c < end_c:
+                            rect_data.append((start_c, f_min, end_c, f_max))
+                    if rect_data:
+                        rects = hv.Rectangles(rect_data, kdims=['time', 'frequency', 'time', 'frequency']).opts(alpha=0.35, color='red', line_alpha=0)
+                        channel_plots.append(img * rects)
+                    else:
+                        channel_plots.append(img)
+                else:
+                    channel_plots.append(img)
             
             # Stack all channel plots vertically
             layout = hv.Layout(channel_plots).cols(1)
@@ -452,6 +493,7 @@ def export_combined_spectrograms_html(active_only_out_eeg_raws, results, output_
             
             # Extract spectrogram data
             spectogram_result_dict = a_result['spectogram']['spectogram_result_dict']
+            channel_bad_intervals = _get_channel_bad_intervals(a_raw, list(spectogram_result_dict.keys()))
             
             # Create compact channel plots
             channel_plots = []
@@ -483,7 +525,23 @@ def export_combined_spectrograms_html(active_only_out_eeg_raws, results, output_
                     tools=['hover', 'pan', 'wheel_zoom', 'reset']
                 )
                 
-                channel_plots.append(img)
+                bad_intervals = channel_bad_intervals.get(ch_name, [])
+                t_min, t_max = float(np.min(t)), float(np.max(t))
+                f_min, f_max = float(f_filtered.min()), float(f_filtered.max())
+                if bad_intervals:
+                    rect_data = []
+                    for start, end in bad_intervals:
+                        start_c = max(start, t_min)
+                        end_c = min(end, t_max)
+                        if start_c < end_c:
+                            rect_data.append((start_c, f_min, end_c, f_max))
+                    if rect_data:
+                        rects = hv.Rectangles(rect_data, kdims=['time', 'frequency', 'time', 'frequency']).opts(alpha=0.35, color='red', line_alpha=0)
+                        channel_plots.append(img * rects)
+                    else:
+                        channel_plots.append(img)
+                else:
+                    channel_plots.append(img)
             
             # Create session layout
             session_layout = hv.Layout(channel_plots).cols(1).opts(
@@ -1325,14 +1383,6 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
 
 # xdf_stream_infos_df: pd.DataFrame = XDFDataStreamAccessor.init_from_results(_out_xdf_stream_infos_df=_out_xdf_stream_infos_df, active_only_out_eeg_raws=active_only_out_eeg_raws)
 # xdf_stream_infos_df
-
-
-
-
-
-
-
-
 
 
 if __name__ == "__main__":
