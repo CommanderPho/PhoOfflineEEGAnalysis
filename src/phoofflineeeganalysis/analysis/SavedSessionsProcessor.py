@@ -44,7 +44,7 @@ from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelpe
 # from ..EegProcessing import bandpower
 
 from phoofflineeeganalysis.EegProcessing import analyze_eeg_trends
-from phoofflineeeganalysis.analysis.EEG_data import EEGData
+from phopymnehelper.analysis.computations.EEG_data import EEGData
 from phoofflineeeganalysis.analysis.motion_data import MotionData
 from phoofflineeeganalysis.analysis.event_data import EventData
 from phoofflineeeganalysis.analysis.historical_data import HistoricalData
