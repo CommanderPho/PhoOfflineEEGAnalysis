@@ -1,49 +1,28 @@
-import time
-import re
-from datetime import datetime, timezone
-import pytz
+from datetime import datetime
 # from pytz import timezone
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import dill
 
-import uuid
-from copy import deepcopy
-from typing import Dict, List, Tuple, Optional, Callable, Union, Any
-from nptyping import NDArray
-from matplotlib import pyplot as plt
+from typing import Dict, List, Tuple, Optional, Callable, Any
 
 from pathlib import Path
-import numpy as np
 import pandas as pd
-from numpy.typing import NDArray
 
-import mne
 from mne import set_log_level
 from copy import deepcopy
 import mne
 
-from mne.io import read_raw
 # from phoofflineeeganalysis.tzinfo_examples import Eastern
 
 
 datasets = []
 mne.viz.set_browser_backend("Matplotlib")
-from attrs import define, field, Factory
+from attrs import define, field
 
-from mne_lsl.player import PlayerLSL as Player
-from mne_lsl.stream import StreamLSL as Stream
-
-from phoofflineeeganalysis.EegProcessing import bandpower
-from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers, up_convert_raw_objects
-from phoofflineeeganalysis.analysis.historical_data import HistoricalData
-from phoofflineeeganalysis.analysis.motion_data import MotionData
-from phoofflineeeganalysis.analysis.EEG_data import EEGData
-from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelper
 # from ..EegProcessing import bandpower
 
-from phoofflineeeganalysis.EegProcessing import analyze_eeg_trends
 from phopymnehelper.analysis.computations.EEG_data import EEGData
 from phoofflineeeganalysis.analysis.motion_data import MotionData
 from phoofflineeeganalysis.analysis.event_data import EventData
@@ -407,8 +386,6 @@ class SavedSessionsProcessor:
         
         """
         from phoofflineeeganalysis.analysis.MNE_helpers import up_convert_raw_objects
-        from phoofflineeeganalysis.analysis.EEG_data import EEGData
-
 
         edf_export_parent_path.mkdir(exist_ok=True)
         (all_data_EEG, all_times_EEG), datasets_EEG, df_EEG = self.flat_data_modality_dict['EEG']  ## Unpacking

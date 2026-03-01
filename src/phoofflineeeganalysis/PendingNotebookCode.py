@@ -1,15 +1,12 @@
-from typing import Dict, List, Tuple, Optional, Callable, Union, Any
-from nptyping import NDArray
+from typing import List, Tuple, Optional, Union
 import numpy as np
-import pandas as pd
 import xarray as xr
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 
 import mne
-from phoofflineeeganalysis.analysis.EEG_data import EEGComputations, EEGData
-import matplotlib.pyplot as plt
+from phopymnehelper.analysis.computations.EEG_data import EEGComputations
 from matplotlib.backends.backend_pdf import PdfPages
 from datetime import datetime, timezone, timedelta
 import matplotlib.pyplot as plt

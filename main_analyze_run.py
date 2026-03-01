@@ -3,63 +3,37 @@ import hashlib
 import json
 import os
 import pickle
-import re
 import threading
-import time
-import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Callable, Union, Any
+from typing import Dict, List, Tuple, Optional, Any
 
 # Third-party imports
 import h5py
 import numpy as np
 import pandas as pd
 import xarray as xr
-import zarr
-from matplotlib import pyplot as plt
-from nptyping import NDArray
-from numpy.typing import NDArray
 
 # MNE imports
 import mne
 from mne import set_log_level
-from mne.io import read_raw
-from mne_lsl.player import PlayerLSL as Player
-from mne_lsl.stream import StreamLSL as Stream
 
 # Visualization imports
 import holoviews as hv
-import hvplot.pandas
 import hvplot.xarray
 import panel as pn
-from holoviews import opts
 
 # IPython imports
-import IPython
-from IPython.core.interactiveshell import InteractiveShell
 
 # Project-specific imports
-from phopylslhelper.easy_time_sync import EasyTimeSyncParsingMixin, readable_dt_str, from_readable_dt_str
 from phoofflineeeganalysis.analysis.MNE_helpers import (
-    MNEHelpers, DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, 
-    RawExtended, up_convert_raw_objects, up_convert_raw_obj
+    up_convert_raw_objects, up_convert_raw_obj
 )
-from phoofflineeeganalysis.analysis.historical_data import HistoricalData
-from phoofflineeeganalysis.analysis.motion_data import MotionData
-from phoofflineeeganalysis.analysis.EEG_data import EEGComputations, EEGData
-from phoofflineeeganalysis.analysis.anatomy_and_electrodes import ElectrodeHelper
-from phoofflineeeganalysis.EegVisualization import VisHelpers
-from phoofflineeeganalysis.analysis.SavedSessionsProcessor import SavedSessionsProcessor, SessionModality, DataModalityType
+from phopymnehelper.analysis.computations.EEG_data import EEGComputations, EEGData
+from phoofflineeeganalysis.analysis.SavedSessionsProcessor import SavedSessionsProcessor, DataModalityType
 from phoofflineeeganalysis.analysis.xdf_files import LabRecorderXDF, XDFDataStreamAccessor
-from phopylslhelper.general_helpers import unwrap_single_element_listlike_if_needed
-from phoofflineeeganalysis.PendingNotebookCode import (
-    batch_compute_all_eeg_datasets, render_all_spectograms_to_high_quality_pdfs,
-    plot_all_spectograms, plot_session_spectogram, ZarrSerialization, build_merged
-)
-
 
 COMPUTATION_HISTORY_COLUMNS = ["cache_key_hex", "xdf_path", "xdf_mtime", "params_json", "result_path", "fif_filename", "computed_at"]
 

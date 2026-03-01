@@ -1,10 +1,8 @@
 from datetime import datetime, timezone
 from copy import deepcopy
-from typing import Dict, List, Tuple, Optional, Callable, Union, Any
-from nptyping import NDArray
+from typing import Dict, List, Tuple, Optional, Any
 
 from pathlib import Path
-import numpy as np
 import pandas as pd
 from attrs import define, field, Factory
 
@@ -13,7 +11,7 @@ import pyxdf
 import numpy as np
 from benedict import benedict
 
-from phopylslhelper.general_helpers import unwrap_single_element_listlike_if_needed, readable_dt_str, from_readable_dt_str, localize_datetime_to_timezone, tz_UTC, tz_Eastern, _default_tz
+from phopylslhelper.general_helpers import unwrap_single_element_listlike_if_needed, readable_dt_str
 from phopylslhelper.easy_time_sync import EasyTimeSyncParsingMixin
 from phoofflineeeganalysis.analysis.SavedSessionsProcessor import DataModalityType #TODO: move somewhere common
 
@@ -879,8 +877,6 @@ class LabRecorderXDF:
                         post-zeroed stream_clock_times: [0.0, 5.0005474500358105, 10.000805050018243, 15.001541150035337, 20.00170895003248, 25.00262110005133, 30.00296305003576, 35.00382990000071]
                     n_unique_xdf_datasets: 1
         """
-        from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers, RawArrayExtended, RawExtended, up_convert_raw_obj, up_convert_raw_objects
-        from phoofflineeeganalysis.analysis.motion_data import MotionData
 
         skipped_stream_names: List[str] = [
             # 'TextLogger',
@@ -997,8 +993,8 @@ class LabRecorderXDF:
         if `not should_load_full_file_data`, only return the `_out_xdf_stream_infos_df, lab_recorder_xdf_files` and not `_out_eeg_raw` (which will be None)
 
         """
-        from phoofflineeeganalysis.analysis.MNE_helpers import DatasetDatetimeBoundsRenderingMixin, RawArrayExtended, RawExtended, up_convert_raw_objects, up_convert_raw_obj
-        from phoofflineeeganalysis.analysis.EEG_data import EEGData
+        from phoofflineeeganalysis.analysis.MNE_helpers import up_convert_raw_objects, up_convert_raw_obj
+        from phopymnehelper.analysis.computations.EEG_data import EEGData
                                        
         assert lab_recorder_output_path.exists()
 
@@ -1170,8 +1166,7 @@ class LabRecorderXDF:
 
         """
         import h5py
-        from phoofflineeeganalysis.analysis.EEG_data import EEGComputations, EEGData
-        from phoofflineeeganalysis.analysis.xdf_files import LabRecorderXDF
+        from phopymnehelper.analysis.computations.EEG_data import EEGComputations
 
         write_mode = 'a'
         if (not file_path.exists()):
