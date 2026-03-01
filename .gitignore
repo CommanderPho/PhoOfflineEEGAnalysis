@@ -28,3 +28,5 @@ rerun/dist/rerun-loader-xdf-file.exe
 .idea
 **/.cursorindexingignore*
 .cursor/rules/derived-cursor-rules.mdc
+forecasting
+examples_jupyter/EXTERNAL
