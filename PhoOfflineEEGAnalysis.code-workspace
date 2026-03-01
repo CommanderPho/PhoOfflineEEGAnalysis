@@ -20,6 +20,15 @@
 		},
 		{
 			"path": "../python_xdf_streamer"
+		},
+		{
+			"path": "H:/TEMP/Spike3DEnv_ExploreUpgrade/Spike3DWorkEnv/NeuroPy"
+		},
+		{
+			"path": "H:/TEMP/Spike3DEnv_ExploreUpgrade/Spike3DWorkEnv/pyPhoCoreHelpers"
+		},
+		{
+			"path": "H:/TEMP/Spike3DEnv_ExploreUpgrade/Spike3DWorkEnv/pyPhoPlaceCellAnalysis"
 		}
 	],
 	"settings": {
@@ -49,6 +58,11 @@
 		"python.languageServer": "None",
 		"problems.visibility": false,
 		"python.analysis.logLevel": "Trace",
+		"files.readonlyInclude": {
+			"C:\\Users\\pho\\repos\\EmotivEpoc\\ACTIVE_DEV\\pyPhoPlaceCellAnalysis": true,
+			"H:\\TEMP\\Spike3DEnv_ExploreUpgrade\\Spike3DWorkEnv\\NeuroPy": true,
+			"H:\\TEMP\\Spike3DEnv_ExploreUpgrade\\Spike3DWorkEnv\\pyPhoCoreHelpers": true
+		},
 	},
 	"extensions": {
 		"recommendations": [
