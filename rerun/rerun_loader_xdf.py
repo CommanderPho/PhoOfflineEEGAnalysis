@@ -130,7 +130,7 @@ def _global_t0_from_streams(streams: list) -> float:
 
 
 def _log_xdf_streams_imu_style(streams: list, entity_path_prefix: str, t0: float) -> None:
-    """Log first EEG at xdf/EEG and first MOTION at xdf/MOTION with shared t0 (one time-series panel each)."""
+    """Log first EEG at xdf/EEG/<channel> (one stacked 1D plot per channel) and first MOTION at xdf/MOTION (one panel)."""
     prefix = f"{entity_path_prefix}xdf/".replace("//", "/")
     logged = {"EEG": False, "MOTION": False}
     for stream in streams:
@@ -147,10 +147,17 @@ def _log_xdf_streams_imu_style(streams: list, entity_path_prefix: str, t0: float
         if modality not in ("EEG", "MOTION") or logged[modality]:
             continue
         time_sec = (time_stamps - t0).astype(np.float64)
-        path = f"{prefix}{modality}"
         channel_labels = _channel_labels_from_stream(stream, n_channels)
-        rr.send_columns(path, indexes=[rr.TimeColumn("time_sec", duration=time_sec)], columns=rr.Scalars.columns(scalars=time_series))
-        rr.log(path, rr.SeriesLines(names=channel_labels), static=True)
+        if modality == "EEG":
+            for i in range(n_channels):
+                ch_path = f"{prefix}EEG/{_sanitize_entity_name(channel_labels[i])}"
+                ch_scalars = time_series[:, i : i + 1]
+                rr.send_columns(ch_path, indexes=[rr.TimeColumn("time_sec", duration=time_sec)], columns=rr.Scalars.columns(scalars=ch_scalars))
+                rr.log(ch_path, rr.SeriesLines(names=[channel_labels[i]]), static=True)
+        else:
+            path = f"{prefix}{modality}"
+            rr.send_columns(path, indexes=[rr.TimeColumn("time_sec", duration=time_sec)], columns=rr.Scalars.columns(scalars=time_series))
+            rr.log(path, rr.SeriesLines(names=channel_labels), static=True)
         logged[modality] = True
         if logged["EEG"] and logged["MOTION"]:
             break
@@ -180,7 +187,7 @@ def _log_xdf_text_streams_merged(streams: list, entity_path_prefix: str, t0: flo
             entries.append((t_sec, text))
     entries.sort(key=lambda x: x[0])
     for t_sec, text in entries:
-        rr.set_time_seconds("time_sec", t_sec)
+        rr.set_time("time_sec", duration=t_sec)
         rr.log(path, rr.TextLog(text))
 
 

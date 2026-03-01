@@ -25,3 +25,6 @@ timeline_export.json
 rerun/EXAMPLES
 rerun/build
 rerun/dist/rerun-loader-xdf-file.exe
+.idea
+**/.cursorindexingignore*
+.cursor/rules/derived-cursor-rules.mdc

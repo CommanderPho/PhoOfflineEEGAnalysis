@@ -6292,7 +6292,7 @@ wheels = [
 
 [[package]]
 name = "py-pho-timeline"
-version = "0.4.1"
+version = "0.4.2"
 source = { editable = "../pyPhoTimeline" }
 dependencies = [
     { name = "attrs" },
