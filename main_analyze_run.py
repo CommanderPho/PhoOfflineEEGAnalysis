@@ -31,7 +31,7 @@ import panel as pn
 from phoofflineeeganalysis.analysis.MNE_helpers import (
     up_convert_raw_objects, up_convert_raw_obj
 )
-from phopymnehelper.analysis.computations.EEG_data import EEGComputations, EEGData
+from phopymnehelper.EEG_data import EEGComputations, EEGData
 from phoofflineeeganalysis.analysis.SavedSessionsProcessor import SavedSessionsProcessor, DataModalityType
 from phoofflineeeganalysis.analysis.xdf_files import LabRecorderXDF, XDFDataStreamAccessor
 

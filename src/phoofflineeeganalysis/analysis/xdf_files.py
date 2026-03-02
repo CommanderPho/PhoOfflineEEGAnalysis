@@ -994,7 +994,7 @@ class LabRecorderXDF:
 
         """
         from phoofflineeeganalysis.analysis.MNE_helpers import up_convert_raw_objects, up_convert_raw_obj
-        from phopymnehelper.analysis.computations.EEG_data import EEGData
+        from phopymnehelper.EEG_data import EEGData
                                        
         assert lab_recorder_output_path.exists()
 
@@ -1166,7 +1166,7 @@ class LabRecorderXDF:
 
         """
         import h5py
-        from phopymnehelper.analysis.computations.EEG_data import EEGComputations
+        from phopymnehelper.EEG_data import EEGComputations
 
         write_mode = 'a'
         if (not file_path.exists()):

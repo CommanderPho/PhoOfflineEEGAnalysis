@@ -17,8 +17,8 @@ from mne import set_log_level
 from copy import deepcopy
 import mne
 
-from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
-from phoofflineeeganalysis.analysis.historical_data import HistoricalData ## for creating single EDF+ files containing channel with different sampling rates (e.g. EEG and MOTION data)
+from phopymnehelper.MNE_helpers import MNEHelpers
+from phopymnehelper.historical_data import HistoricalData ## for creating single EDF+ files containing channel with different sampling rates (e.g. EEG and MOTION data)
 
 mne.viz.set_browser_backend("Matplotlib")
 

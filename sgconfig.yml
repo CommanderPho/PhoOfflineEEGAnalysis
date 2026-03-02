@@ -1,0 +1,6 @@
+ruleDirs:
+- C:\Users\pho\repos\EmotivEpoc\ACTIVE_DEV\PhoOfflineEEGAnalysis\rules
+testConfigs:
+- testDir: C:\Users\pho\repos\EmotivEpoc\ACTIVE_DEV\PhoOfflineEEGAnalysis\rule-tests
+utilDirs:
+- C:\Users\pho\repos\EmotivEpoc\ACTIVE_DEV\PhoOfflineEEGAnalysis\utils

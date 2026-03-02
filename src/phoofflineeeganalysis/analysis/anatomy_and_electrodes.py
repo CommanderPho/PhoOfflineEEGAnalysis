@@ -18,7 +18,7 @@ from phopymnehelper.anatomy_and_electrodes import ElectrodeHelper
 
 
 if __name__ == "__main__":
-    # from phopymnehelper.analysis.anatomy_and_electrodes import ElectrodeHelper
+    # from phopymnehelper.anatomy_and_electrodes import ElectrodeHelper
     from phopymnehelper.anatomy_and_electrodes import ElectrodeHelper
     from mne.channels.montage import DigMontage
     from matplotlib import pyplot as plt

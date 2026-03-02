@@ -28,7 +28,7 @@ from mne_lsl.player import PlayerLSL as Player
 from mne_lsl.stream import StreamLSL as Stream
 
 # from phoofflineeeganalysis.EegProcessing import bandpower
-from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
+from phopymnehelper.MNE_helpers import MNEHelpers
 # from ..EegProcessing import bandpower
 from numpy.typing import NDArray
 # from nptyping import NDArray

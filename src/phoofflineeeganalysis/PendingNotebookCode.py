@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import os
 
 import mne
-from phopymnehelper.analysis.computations.EEG_data import EEGComputations
+from phopymnehelper.EEG_data import EEGComputations
 from matplotlib.backends.backend_pdf import PdfPages
 from datetime import datetime, timezone, timedelta
 import matplotlib.pyplot as plt

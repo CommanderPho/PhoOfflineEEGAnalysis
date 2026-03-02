@@ -23,10 +23,10 @@ from attrs import define, field
 
 # from ..EegProcessing import bandpower
 
-from phopymnehelper.analysis.computations.EEG_data import EEGData
+from phopymnehelper.EEG_data import EEGData
 from phoofflineeeganalysis.analysis.motion_data import MotionData
 from phoofflineeeganalysis.analysis.event_data import EventData
-from phoofflineeeganalysis.analysis.historical_data import HistoricalData
+from phopymnehelper.historical_data import HistoricalData
 
 set_log_level("WARNING")
 

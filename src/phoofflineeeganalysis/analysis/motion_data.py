@@ -58,7 +58,7 @@ class MotionData:
     def find_high_accel_periods(cls, a_ds: mne.io.Raw, total_accel_threshold: float = 0.5, should_set_bad_period_annotations: bool=True, **set_annotations_kwargs) -> Tuple[mne.Annotations, pd.DataFrame]:
         """ finds periods of high acceleration in the dataset and returns annotations for those periods.
         """
-        from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
+        from phopymnehelper.MNE_helpers import MNEHelpers
 
         meas_date = deepcopy(a_ds.info['meas_date'])
         # a_ds = motion_datasets[-1]

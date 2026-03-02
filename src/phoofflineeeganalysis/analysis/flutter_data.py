@@ -20,7 +20,7 @@ import mne
 from phoofflineeeganalysis.analysis.motion_data import MotionData ## for creating single EDF+ files containing channel with different sampling rates (e.g. EEG and MOTION data)
 
 # from phoofflineeeganalysis.EegProcessing import bandpower
-from phoofflineeeganalysis.analysis.MNE_helpers import MNEHelpers
+from phopymnehelper.MNE_helpers import MNEHelpers
 # from ..EegProcessing import bandpower
 from numpy.typing import NDArray
 # from nptyping import NDArray
@@ -32,7 +32,7 @@ import os, sys
 # os.environ["PYTHONPATH"] = "C:/Users/pho/repos/EmotivEpoc/emotiv-lsl:" + os.environ.get("PYTHONPATH", "")
 
 from phoofflineeeganalysis.helpers.indexing_helpers import reorder_columns_relative
-from phoofflineeeganalysis.analysis.historical_data import HistoricalData
+from phopymnehelper.historical_data import HistoricalData
 
 
 class GenericRawDebugFileProcessor:
