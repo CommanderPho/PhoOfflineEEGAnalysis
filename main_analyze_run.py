@@ -28,12 +28,12 @@ import panel as pn
 # IPython imports
 
 # Project-specific imports
-from phoofflineeeganalysis.analysis.MNE_helpers import (
+from phopymnehelper.MNE_helpers import (
     up_convert_raw_objects, up_convert_raw_obj
 )
 from phopymnehelper.EEG_data import EEGComputations, EEGData
-from phoofflineeeganalysis.analysis.SavedSessionsProcessor import SavedSessionsProcessor, DataModalityType
-from phoofflineeeganalysis.analysis.xdf_files import LabRecorderXDF, XDFDataStreamAccessor
+from phopymnehelper.SavedSessionsProcessor import SavedSessionsProcessor, DataModalityType
+from phopymnehelper.xdf_files import LabRecorderXDF, XDFDataStreamAccessor
 
 COMPUTATION_HISTORY_COLUMNS = ["cache_key_hex", "xdf_path", "xdf_mtime", "params_json", "result_path", "fif_filename", "computed_at"]
 
