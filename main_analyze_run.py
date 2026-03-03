@@ -289,8 +289,26 @@ def _get_channel_bad_intervals(raw: mne.io.BaseRaw, channel_names: List[str]) ->
     return out
 
 
+def _style_spectrogram_bokeh_plots(plot_handle):
+    """Recursively style Bokeh plot(s): title white box with black border, light grey/blue background, subtle y-grid."""
+    if hasattr(plot_handle, 'title') and hasattr(plot_handle.title, 'background_fill_color'):
+        plot_handle.title.background_fill_color = 'white'
+        plot_handle.title.border_line_color = 'black'
+        plot_handle.title.border_line_width = 1
+    if hasattr(plot_handle, 'background_fill_color'):
+        plot_handle.background_fill_color = '#e8eef2'
+    if hasattr(plot_handle, 'ygrid') and hasattr(plot_handle.ygrid, 'grid_line_color'):
+        plot_handle.ygrid.grid_line_color = '#c0c8d0'
+        plot_handle.ygrid.grid_line_alpha = 0.8
+    if hasattr(plot_handle, 'children'):
+        for child in plot_handle.children:
+            if child is not None:
+                _style_spectrogram_bokeh_plots(child)
+
+
 def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_folder: Path,
-                                     freq_min: float = 1.0, freq_max: float = 40.0, filename_prefix: str = ""):
+                                     freq_min: float = 1.0, freq_max: float = 40.0, filename_prefix: str = "",
+                                     session_label: Optional[str] = None):
     """
     Export interactive HTML spectrograms for each EEG session using HoloViews.
     
@@ -298,7 +316,7 @@ def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_f
     - Interactive spectrogram heatmaps for each channel
     - Zoomable/pannable time and frequency axes
     - Hover tooltips showing exact values
-    - Session metadata in title
+    - Session title in format YYYY-MM-DD/HH-MM-SS or YYYY-MM-DD/HH-MM-SS - session_label
     
     Args:
         active_only_out_eeg_raws: List of mne.io.Raw EEG sessions
@@ -306,14 +324,17 @@ def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_f
         output_folder: Path to save HTML files
         freq_min: Minimum frequency to display (Hz)
         freq_max: Maximum frequency to display (Hz)
+        filename_prefix: Optional prefix for output filenames
+        session_label: Optional label appended to session title (e.g. "cog_bad")
         
     Returns:
         List of Path objects for created HTML files
         
     Usage:
         html_files = export_session_spectrograms_html(
-            active_only_out_eeg_raws, results, 
-            outputs_root_folder / "spectrograms_html"
+            active_only_out_eeg_raws, results,
+            outputs_root_folder / "spectrograms_html",
+            session_label="cog_bad"
         )
     """
     output_folder = Path(output_folder)
@@ -327,10 +348,12 @@ def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_f
             meas_date = a_raw.info.get('meas_date')
             if meas_date:
                 session_name = meas_date.strftime('%Y-%m-%d_%H-%M-%S')
-                session_title = meas_date.strftime('%Y-%m-%d %H:%M:%S')
+                session_title_display = meas_date.strftime('%Y-%m-%d/%H-%M-%S')
+                if session_label:
+                    session_title_display = f"{session_title_display} - {session_label}"
             else:
                 session_name = f"session_{idx:03d}"
-                session_title = f"Session {idx}"
+                session_title_display = f"Session {idx}" if not session_label else f"Session {idx} - {session_label}"
             
             # Extract spectrogram data
             spectogram_result_dict = a_result['spectogram']['spectogram_result_dict']
@@ -357,20 +380,20 @@ def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_f
                     name=f'{ch_name}_power'
                 )
                 
-                # Create HoloViews image with hvplot
+                # Create HoloViews image with hvplot (match preferred appearance: no colorbar, no x-label, session title)
                 img = da.hvplot.image(
                     x='time', y='frequency',
                     cmap='viridis',
                     clim=(Sxx_filtered.min(), Sxx_filtered.max()),
-                    title=f'{ch_name}',
-                    xlabel='Time (s)',
+                    title=session_title_display,
+                    xlabel='',
                     ylabel='Frequency (Hz)',
                     width=900,
                     height=150,
-                    colorbar=True,
+                    colorbar=False,
                     tools=['hover', 'pan', 'wheel_zoom', 'box_zoom', 'reset'],
-                    hover_tooltips=[('Time', '@time{0.2f}s'), 
-                                   ('Freq', '@frequency{0.1f}Hz'), 
+                    hover_tooltips=[('Time', '@time{0.2f}s'),
+                                   ('Freq', '@frequency{0.1f}Hz'),
                                    ('Power', '@image{0.2f}dB')]
                 )
                 
@@ -395,10 +418,16 @@ def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_f
             # Stack all channel plots vertically
             layout = hv.Layout(channel_plots).cols(1)
             
-            # Add overall title
+            def _spectrogram_style_hook(hv_plot, _element):
+                bokeh_root = hv_plot.handles.get('plot')
+                if bokeh_root is not None:
+                    _style_spectrogram_bokeh_plots(bokeh_root)
+
+            # Add overall title and hook for title box + background/grid styling
             layout = layout.opts(
-                title=f'EEG Spectrogram - {session_title}',
-                shared_axes=True
+                title=session_title_display,
+                shared_axes=True,
+                hooks=[_spectrogram_style_hook]
             )
             
             # Save to HTML
@@ -1157,7 +1186,7 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
                         result_path, _ = looked_up
                         print(f'  Cache hit: loading result from {result_path.as_posix()}')
                         result = _load_result_from_cache(result_path)
-                        _obj = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=a_xdf_file)
+                        _obj = LabRecorderXDF.init_from_lab_recorder_xdf_file(a_xdf_file=a_xdf_file) ## #TODO 2026-03-02 03:53: - [ ] we do this full loading of the XDF file either way whether it was cached or not
                         stream_infos = _obj.stream_infos
                         raws_dict = _obj.datasets_dict
                         eeg_raws = raws_dict.get(DataModalityType.EEG.value, [])
