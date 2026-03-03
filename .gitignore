@@ -30,3 +30,4 @@ rerun/dist/rerun-loader-xdf-file.exe
 .cursor/rules/derived-cursor-rules.mdc
 forecasting
 examples_jupyter/EXTERNAL
+.vscode/groupbookmarks

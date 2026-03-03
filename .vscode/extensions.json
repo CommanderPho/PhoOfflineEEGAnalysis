@@ -1,6 +1,7 @@
 {
 	"recommendations": [
 		"kevinrose.vsc-python-indent",
-		"specstory.specstory-vscode"
+		"specstory.specstory-vscode",
+		"astral-sh.ty"
 	]
 }

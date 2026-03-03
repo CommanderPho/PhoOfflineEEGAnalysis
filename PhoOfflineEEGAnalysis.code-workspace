@@ -20,15 +20,6 @@
 		},
 		{
 			"path": "../python_xdf_streamer"
-		},
-		{
-			"path": "H:/TEMP/Spike3DEnv_ExploreUpgrade/Spike3DWorkEnv/NeuroPy"
-		},
-		{
-			"path": "H:/TEMP/Spike3DEnv_ExploreUpgrade/Spike3DWorkEnv/pyPhoCoreHelpers"
-		},
-		{
-			"path": "H:/TEMP/Spike3DEnv_ExploreUpgrade/Spike3DWorkEnv/pyPhoPlaceCellAnalysis"
 		}
 	],
 	"settings": {
@@ -55,7 +46,7 @@
 			"sideBarSectionHeader.border": "#cecece"
 		},
 		"git.ignoreLimitWarning": true,
-		"python.languageServer": "None",
+		// "python.languageServer": "None",
 		"problems.visibility": false,
 		"python.analysis.logLevel": "Trace",
 		"files.readonlyInclude": {
@@ -63,11 +54,21 @@
 			"H:\\TEMP\\Spike3DEnv_ExploreUpgrade\\Spike3DWorkEnv\\NeuroPy": true,
 			"H:\\TEMP\\Spike3DEnv_ExploreUpgrade\\Spike3DWorkEnv\\pyPhoCoreHelpers": true
 		},
+		"extensions.closeExtensionDetailsOnViewChange": true,
+		"python-envs.pythonProjects": [
+			{
+				"path": "src/phopymnehelper",
+				"envManager": "ms-python.python:venv",
+				"packageManager": "ms-python.python:pip",
+				"workspace": "PhoPyMNEHelper"
+			}
+		],
 	},
 	"extensions": {
 		"recommendations": [
 			"specstory.specstory-vscode",
-			"ast-grep.ast-grep-vscode"
+			"ast-grep.ast-grep-vscode",
+			"astral-sh.ty"
 		]
 	}
 }
