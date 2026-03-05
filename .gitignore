@@ -31,3 +31,4 @@ rerun/dist/rerun-loader-xdf-file.exe
 forecasting
 examples_jupyter/EXTERNAL
 .vscode/groupbookmarks
+**/exploded-call-hierarchy.ipynb
