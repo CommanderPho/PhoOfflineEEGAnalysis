@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = "==3.10.*"
 resolution-markers = [
     "platform_machine == 'ARM64' and sys_platform == 'win32'",
@@ -1461,6 +1461,17 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ae/ed/aefcc8cd0ba62a0560c3c18c33925362d46c6075480bfa4df87b28e169a9/docutils-0.21.2.tar.gz", hash = "sha256:3a6b18732edf182daa3cd12775bbb338cf5691468f91eeeb109deff6ebfa986f", size = 2204444, upload-time = "2024-04-23T18:57:18.24Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8f/d7/9322c609343d929e75e7e5e6255e614fcc67572cfd083959cdef3b7aad79/docutils-0.21.2-py3-none-any.whl", hash = "sha256:dafca5b9e384f0e419294eb4d2ff9fa826435bf15f15b7bd45723e8ad76811b2", size = 587408, upload-time = "2024-04-23T18:57:14.835Z" },
+]
+
+[[package]]
+name = "dotenv"
+version = "0.9.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "python-dotenv" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b2/b7/545d2c10c1fc15e48653c91efde329a790f2eecfbbf2bd16003b5db2bab0/dotenv-0.9.9-py2.py3-none-any.whl", hash = "sha256:29cf74a087b31dafdb5a446b6d7e11cbce8ed2741540e2339c69fbef92c94ce9", size = 1892, upload-time = "2025-02-19T22:15:01.647Z" },
 ]
 
 [[package]]
@@ -4703,7 +4714,7 @@ wheels = [
 
 [[package]]
 name = "neuropy"
-version = "0.2.6"
+version = "0.2.7"
 source = { editable = "../NeuroPy" }
 dependencies = [
     { name = "cupy-cuda12x" },
@@ -6004,11 +6015,12 @@ wheels = [
 
 [[package]]
 name = "py-pho-timeline"
-version = "0.4.2"
+version = "0.4.3"
 source = { editable = "../pyPhoTimeline" }
 dependencies = [
     { name = "attrs" },
     { name = "awkward" },
+    { name = "dotenv" },
     { name = "imageio", extra = ["ffmpeg"] },
     { name = "nptyping" },
     { name = "numpy" },
@@ -6030,6 +6042,7 @@ dependencies = [
 requires-dist = [
     { name = "attrs", specifier = ">=22.2.0,<23" },
     { name = "awkward", specifier = ">=2.8.11" },
+    { name = "dotenv", specifier = ">=0.9.9" },
     { name = "imageio", extras = ["ffmpeg"], specifier = ">=2.37.2" },
     { name = "nptyping", specifier = ">=2.5.0" },
     { name = "numpy", specifier = "~=1.20" },
@@ -6542,7 +6555,7 @@ wheels = [
 
 [[package]]
 name = "pyphocorehelpers"
-version = "0.4.6"
+version = "0.4.7"
 source = { editable = "../pyPhoCoreHelpers" }
 dependencies = [
     { name = "ansi2html" },
@@ -6586,7 +6599,12 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "importlib-metadata", specifier = ">=6.0.0,<7" }]
+dev = [
+    { name = "importlib-metadata", specifier = ">=6.0.0,<7" },
+    { name = "pylsp-rope", specifier = ">=0.1.17" },
+    { name = "python-lsp-server", specifier = ">=1.14.0" },
+    { name = "rope", specifier = ">=1.14.0" },
+]
 viz = [
     { name = "hdf5plugin", specifier = ">=4.1.1,<5" },
     { name = "matplotlib", specifier = ">=3.6.3,<4" },
