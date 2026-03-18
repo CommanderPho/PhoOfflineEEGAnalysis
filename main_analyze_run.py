@@ -297,444 +297,556 @@ def _get_channel_bad_intervals(raw: mne.io.BaseRaw, channel_names: List[str]) ->
 	return out
 
 
-def _style_spectrogram_bokeh_plots(plot_handle):
-	"""Recursively style Bokeh plot(s): title white box with black border, light grey/blue background, subtle y-grid."""
-	if hasattr(plot_handle, 'title') and hasattr(plot_handle.title, 'background_fill_color'):
-		plot_handle.title.background_fill_color = 'white'
-		plot_handle.title.border_line_color = 'black'
-		plot_handle.title.border_line_width = 1
-	if hasattr(plot_handle, 'background_fill_color'):
-		plot_handle.background_fill_color = '#e8eef2'
-	if hasattr(plot_handle, 'ygrid') and hasattr(plot_handle.ygrid, 'grid_line_color'):
-		plot_handle.ygrid.grid_line_color = '#c0c8d0'
-		plot_handle.ygrid.grid_line_alpha = 0.8
-	if hasattr(plot_handle, 'children'):
-		for child in plot_handle.children:
-			if child is not None:
-				_style_spectrogram_bokeh_plots(child)
+class SpectogramPlottingHelper:
+	@classmethod
+	def _style_spectrogram_bokeh_plots(cls, plot_handle):
+		"""Recursively style Bokeh plot(s): title white box with black border, light grey/blue background, subtle y-grid."""
+		if hasattr(plot_handle, 'title') and hasattr(plot_handle.title, 'background_fill_color'):
+			plot_handle.title.background_fill_color = 'white'
+			plot_handle.title.border_line_color = 'black'
+			plot_handle.title.border_line_width = 1
+		if hasattr(plot_handle, 'background_fill_color'):
+			plot_handle.background_fill_color = '#e8eef2'
+		if hasattr(plot_handle, 'ygrid') and hasattr(plot_handle.ygrid, 'grid_line_color'):
+			plot_handle.ygrid.grid_line_color = '#c0c8d0'
+			plot_handle.ygrid.grid_line_alpha = 0.8
+		if hasattr(plot_handle, 'children'):
+			for child in plot_handle.children:
+				if child is not None:
+					cls._style_spectrogram_bokeh_plots(child)
 
 
-def export_session_spectrograms_html(active_only_out_eeg_raws, results, output_folder: Path,
-									 freq_min: float = 1.0, freq_max: float = 40.0, filename_prefix: str = "",
-									 session_label: Optional[str] = None):
-	"""
-	Export interactive HTML spectrograms for each EEG session using HoloViews.
-	
-	Creates individual HTML files for each session with:
-	- Interactive spectrogram heatmaps for each channel
-	- Zoomable/pannable time and frequency axes
-	- Hover tooltips showing exact values
-	- Session title in format YYYY-MM-DD/HH-MM-SS or YYYY-MM-DD/HH-MM-SS - session_label
-	
-	Args:
-		active_only_out_eeg_raws: List of mne.io.Raw EEG sessions
-		results: List of computation results containing spectrogram data
-		output_folder: Path to save HTML files
-		freq_min: Minimum frequency to display (Hz)
-		freq_max: Maximum frequency to display (Hz)
-		filename_prefix: Optional prefix for output filenames
-		session_label: Optional label appended to session title (e.g. "cog_bad")
-		
-	Returns:
-		List of Path objects for created HTML files
-		
-	Usage:
-		html_files = export_session_spectrograms_html(
-			active_only_out_eeg_raws, results,
-			outputs_root_folder / "spectrograms_html",
-			session_label="cog_bad"
-		)
-	"""
-	output_folder = Path(output_folder)
-	output_folder.mkdir(parents=True, exist_ok=True)
-	
-	html_files = []
-	
-	for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
-		try:
-			# Get session metadata
-			meas_date = a_raw.info.get('meas_date')
-			if meas_date:
-				session_name = meas_date.strftime('%Y-%m-%d_%H-%M-%S')
-				session_title_display = meas_date.strftime('%Y-%m-%d/%H-%M-%S')
-				if session_label:
-					session_title_display = f"{session_title_display} - {session_label}"
-			else:
-				session_name = f"session_{idx:03d}"
-				session_title_display = f"Session {idx}" if not session_label else f"Session {idx} - {session_label}"
-			
-			# Extract spectrogram data
-			spectogram_result_dict = a_result['spectogram']['spectogram_result_dict']
-			fs = a_result['spectogram']['fs']
-			channel_bad_intervals = _get_channel_bad_intervals(a_raw, list(spectogram_result_dict.keys()))
-			
-			# Create HoloViews plots for each channel
-			channel_plots = []
-			
-			for ch_idx, (ch_name, (f, t, Sxx)) in enumerate(spectogram_result_dict.items()):
-				# Convert to dB scale
-				Sxx_db = 10 * np.log10(Sxx + 1e-12)
-				
-				# Filter frequency range
-				freq_mask = (f >= freq_min) & (f <= freq_max)
-				f_filtered = f[freq_mask]
-				Sxx_filtered = Sxx_db[freq_mask, :]
-				
-				# Create xarray DataArray for easier plotting
-				da = xr.DataArray(
-					Sxx_filtered,
-					coords={'frequency': f_filtered, 'time': t},
-					dims=['frequency', 'time'],
-					name=f'{ch_name}_power'
-				)
-				
-				# Create HoloViews image with hvplot (match preferred appearance: no colorbar, no x-label, session title)
-				img = da.hvplot.image(
-					x='time', y='frequency',
-					cmap='viridis',
-					clim=(Sxx_filtered.min(), Sxx_filtered.max()),
+	@classmethod
+	def export_session_spectrograms_html(cls, active_only_out_eeg_raws, results, output_folder: Path, freq_min: float = 1.0, freq_max: float = 40.0, filename_prefix: str = "", session_label: Optional[str] = None):
+		"""
+		Export interactive HTML spectrograms for each EEG session using HoloViews.
+
+		Creates individual HTML files for each session with:
+		- Interactive spectrogram heatmaps for each channel
+		- Zoomable/pannable time and frequency axes
+		- Hover tooltips showing exact values
+		- Session title in format YYYY-MM-DD/HH-MM-SS or YYYY-MM-DD/HH-MM-SS - session_label
+
+		Args:
+			active_only_out_eeg_raws: List of mne.io.Raw EEG sessions
+			results: List of computation results containing spectrogram data
+			output_folder: Path to save HTML files
+			freq_min: Minimum frequency to display (Hz)
+			freq_max: Maximum frequency to display (Hz)
+			filename_prefix: Optional prefix for output filenames
+			session_label: Optional label appended to session title (e.g. "cog_bad")
+
+		Returns:
+			List of Path objects for created HTML files
+
+		Usage:
+			html_files = export_session_spectrograms_html(
+				active_only_out_eeg_raws, results,
+				outputs_root_folder / "spectrograms_html",
+				session_label="cog_bad"
+			)
+		"""
+		output_folder = Path(output_folder)
+		output_folder.mkdir(parents=True, exist_ok=True)
+
+		html_files = []
+
+		for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
+			try:
+				# Get session metadata
+				meas_date = a_raw.info.get('meas_date')
+				if meas_date:
+					session_name = meas_date.strftime('%Y-%m-%d_%H-%M-%S')
+					session_title_display = meas_date.strftime('%Y-%m-%d/%H-%M-%S')
+					if session_label:
+						session_title_display = f"{session_title_display} - {session_label}"
+				else:
+					session_name = f"session_{idx:03d}"
+					session_title_display = f"Session {idx}" if not session_label else f"Session {idx} - {session_label}"
+
+				# Extract spectrogram data
+				spectogram_result_dict = a_result['spectogram']['spectogram_result_dict']
+				fs = a_result['spectogram']['fs']
+				channel_bad_intervals = _get_channel_bad_intervals(a_raw, list(spectogram_result_dict.keys()))
+
+				# Create HoloViews plots for each channel
+				channel_plots = []
+
+				for ch_idx, (ch_name, (f, t, Sxx)) in enumerate(spectogram_result_dict.items()):
+					# Convert to dB scale
+					Sxx_db = 10 * np.log10(Sxx + 1e-12)
+
+					# Filter frequency range
+					freq_mask = (f >= freq_min) & (f <= freq_max)
+					f_filtered = f[freq_mask]
+					Sxx_filtered = Sxx_db[freq_mask, :]
+
+					# Create xarray DataArray for easier plotting
+					da = xr.DataArray(
+						Sxx_filtered,
+						coords={'frequency': f_filtered, 'time': t},
+						dims=['frequency', 'time'],
+						name=f'{ch_name}_power'
+					)
+
+					# Create HoloViews image with hvplot (match preferred appearance: no colorbar, no x-label, session title)
+					img = da.hvplot.image(
+						x='time', y='frequency',
+						cmap='viridis',
+						clim=(Sxx_filtered.min(), Sxx_filtered.max()),
+						title=session_title_display,
+						xlabel='',
+						ylabel='Frequency (Hz)',
+						width=900,
+						height=150,
+						colorbar=False,
+						tools=['hover', 'pan', 'wheel_zoom', 'box_zoom', 'reset'],
+						hover_tooltips=[('Time', '@time{0.2f}s'),
+									   ('Freq', '@frequency{0.1f}Hz'),
+									   ('Power', '@image{0.2f}dB')]
+					)
+
+					bad_intervals = channel_bad_intervals.get(ch_name, [])
+					t_min, t_max = float(np.min(t)), float(np.max(t))
+					f_min, f_max = float(f_filtered.min()), float(f_filtered.max())
+					if bad_intervals:
+						rect_data = []
+						for start, end in bad_intervals:
+							start_c = max(start, t_min)
+							end_c = min(end, t_max)
+							if start_c < end_c:
+								rect_data.append((start_c, f_min, end_c, f_max))
+						if rect_data:
+							rects = hv.Rectangles(rect_data, kdims=['time', 'frequency', 'time', 'frequency']).opts(alpha=0.35, color='red', line_alpha=0)
+							channel_plots.append(img * rects)
+						else:
+							channel_plots.append(img)
+					else:
+						channel_plots.append(img)
+
+				# Stack all channel plots vertically
+				layout = hv.Layout(channel_plots).cols(1)
+
+				def _spectrogram_style_hook(hv_plot, _element):
+					bokeh_root = hv_plot.handles.get('plot')
+					if bokeh_root is not None:
+						cls._style_spectrogram_bokeh_plots(bokeh_root)
+
+				# Add overall title and hook for title box + background/grid styling
+				layout = layout.opts(
 					title=session_title_display,
-					xlabel='',
-					ylabel='Frequency (Hz)',
-					width=900,
-					height=150,
-					colorbar=False,
-					tools=['hover', 'pan', 'wheel_zoom', 'box_zoom', 'reset'],
-					hover_tooltips=[('Time', '@time{0.2f}s'),
-								   ('Freq', '@frequency{0.1f}Hz'),
-								   ('Power', '@image{0.2f}dB')]
+					shared_axes=True,
+					hooks=[_spectrogram_style_hook]
 				)
-				
-				bad_intervals = channel_bad_intervals.get(ch_name, [])
-				t_min, t_max = float(np.min(t)), float(np.max(t))
-				f_min, f_max = float(f_filtered.min()), float(f_filtered.max())
-				if bad_intervals:
-					rect_data = []
-					for start, end in bad_intervals:
-						start_c = max(start, t_min)
-						end_c = min(end, t_max)
-						if start_c < end_c:
-							rect_data.append((start_c, f_min, end_c, f_max))
-					if rect_data:
-						rects = hv.Rectangles(rect_data, kdims=['time', 'frequency', 'time', 'frequency']).opts(alpha=0.35, color='red', line_alpha=0)
-						channel_plots.append(img * rects)
-					else:
-						channel_plots.append(img)
-				else:
-					channel_plots.append(img)
-			
-			# Stack all channel plots vertically
-			layout = hv.Layout(channel_plots).cols(1)
-			
-			def _spectrogram_style_hook(hv_plot, _element):
-				bokeh_root = hv_plot.handles.get('plot')
-				if bokeh_root is not None:
-					_style_spectrogram_bokeh_plots(bokeh_root)
 
-			# Add overall title and hook for title box + background/grid styling
-			layout = layout.opts(
-				title=session_title_display,
-				shared_axes=True,
-				hooks=[_spectrogram_style_hook]
-			)
-			
-			# Save to HTML
-			html_path = output_folder / f"{filename_prefix}spectrogram_{session_name}.html"
-			hv.save(layout, html_path, backend='bokeh')
-			html_files.append(html_path)
-			
-			print(f'  Saved spectrogram HTML for session {idx+1}/{len(active_only_out_eeg_raws)}: {html_path.name}')
-			
-		except Exception as e:
-			print(f'  ERROR exporting session {idx}: {e}')
-			continue
-	
-	print(f'\nExported {len(html_files)} spectrogram HTML files to: {output_folder}')
-	return html_files
+				# Save to HTML
+				html_path = output_folder / f"{filename_prefix}spectrogram_{session_name}.html"
+				hv.save(layout, html_path, backend='bokeh')
+				html_files.append(html_path)
 
+				print(f'  Saved spectrogram HTML for session {idx+1}/{len(active_only_out_eeg_raws)}: {html_path.name}')
 
-def export_combined_spectrograms_html(active_only_out_eeg_raws, results, output_path: Path,
-									  freq_min: float = 1.0, freq_max: float = 40.0,
-									  max_sessions_per_page: int = 10):
-	"""
-	Export a single HTML file with all session spectrograms in a scrollable layout.
-	
-	Creates one HTML file with:
-	- All sessions stacked vertically
-	- Session selector dropdown
-	- Synchronized time axes across channels
-	- Compact view for comparison
-	
-	Args:
-		active_only_out_eeg_raws: List of mne.io.Raw EEG sessions
-		results: List of computation results
-		output_path: Path for the output HTML file
-		freq_min: Minimum frequency (Hz)
-		freq_max: Maximum frequency (Hz)
-		max_sessions_per_page: Maximum sessions to include (for performance)
-		
-	Returns:
-		Path to created HTML file
-		
-	Usage:
-		html_file = export_combined_spectrograms_html(
-			active_only_out_eeg_raws, results,
-			outputs_root_folder / "all_spectrograms.html"
-		)
-	"""
-	output_path = Path(output_path)
-	output_path.parent.mkdir(parents=True, exist_ok=True)
-	
-	# Limit sessions for performance
-	n_sessions = min(len(active_only_out_eeg_raws), max_sessions_per_page)
-	
-	all_session_layouts = []
-	
-	for idx in range(n_sessions):
-		a_raw = active_only_out_eeg_raws[idx]
-		a_result = results[idx]
-		
-		try:
-			# Get session metadata
-			meas_date = a_raw.info.get('meas_date')
-			if meas_date:
-				session_title = meas_date.strftime('%Y-%m-%d %H:%M:%S')
-			else:
-				session_title = f"Session {idx}"
-			
-			# Extract spectrogram data
-			spectogram_result_dict = a_result['spectogram']['spectogram_result_dict']
-			channel_bad_intervals = _get_channel_bad_intervals(a_raw, list(spectogram_result_dict.keys()))
-			
-			# Create compact channel plots
-			channel_plots = []
-			
-			for ch_name, (f, t, Sxx) in spectogram_result_dict.items():
-				Sxx_db = 10 * np.log10(Sxx + 1e-12)
-				
-				# Filter frequency
-				freq_mask = (f >= freq_min) & (f <= freq_max)
-				f_filtered = f[freq_mask]
-				Sxx_filtered = Sxx_db[freq_mask, :]
-				
-				# Create compact plot
-				da = xr.DataArray(
-					Sxx_filtered,
-					coords={'frequency': f_filtered, 'time': t},
-					dims=['frequency', 'time']
-				)
-				
-				img = da.hvplot.image(
-					x='time', y='frequency',
-					cmap='viridis',
-					title=f'{ch_name}',
-					xlabel='',
-					ylabel='Hz',
-					width=800,
-					height=80,
-					colorbar=False,
-					tools=['hover', 'pan', 'wheel_zoom', 'reset']
-				)
-				
-				bad_intervals = channel_bad_intervals.get(ch_name, [])
-				t_min, t_max = float(np.min(t)), float(np.max(t))
-				f_min, f_max = float(f_filtered.min()), float(f_filtered.max())
-				if bad_intervals:
-					rect_data = []
-					for start, end in bad_intervals:
-						start_c = max(start, t_min)
-						end_c = min(end, t_max)
-						if start_c < end_c:
-							rect_data.append((start_c, f_min, end_c, f_max))
-					if rect_data:
-						rects = hv.Rectangles(rect_data, kdims=['time', 'frequency', 'time', 'frequency']).opts(alpha=0.35, color='red', line_alpha=0)
-						channel_plots.append(img * rects)
-					else:
-						channel_plots.append(img)
-				else:
-					channel_plots.append(img)
-			
-			# Create session layout
-			session_layout = hv.Layout(channel_plots).cols(1).opts(
-				title=f'{session_title}'
-			)
-			
-			all_session_layouts.append(session_layout)
-			
-		except Exception as e:
-			print(f'  ERROR processing session {idx}: {e}')
-			continue
-	
-	# Combine all sessions
-	combined = hv.Layout(all_session_layouts).cols(1)
-	
-	# Save to HTML
-	hv.save(combined, output_path, backend='bokeh')
-	
-	print(f'\nExported combined spectrogram HTML with {len(all_session_layouts)} sessions to: {output_path}')
-	return output_path
-
-
-def _safe_meas_date_sec(raw: Optional[mne.io.BaseRaw]) -> float:
-	if raw is None:
-		return float("nan")
-	meas_date = raw.info.get("meas_date")
-	if meas_date is None:
-		return float("nan")
-	if getattr(meas_date, "tzinfo", None) is None:
-		meas_date = meas_date.replace(tzinfo=timezone.utc)
-	return float(meas_date.timestamp())
-
-
-def _extract_raw_export_payload(raw: Optional[mne.io.BaseRaw]) -> Dict[str, Any]:
-	if raw is None:
-		return {"has_data": False, "raw_data": np.empty((0, 0), dtype=np.float64), "raw_times_sec": np.empty((0,), dtype=np.float64), "channel_names": [], "sfreq_hz": float("nan"), "time_origin_meas_date_sec": float("nan")}
-	try:
-		raw_data = np.asarray(raw.get_data(), dtype=np.float64)
-		raw_times_sec = np.asarray(raw.times, dtype=np.float64)
-		channel_names = [str(v) for v in raw.info.get("ch_names", [])]
-		sfreq_hz = float(raw.info.get("sfreq", float("nan")))
-		return {"has_data": True, "raw_data": raw_data, "raw_times_sec": raw_times_sec, "channel_names": channel_names, "sfreq_hz": sfreq_hz, "time_origin_meas_date_sec": _safe_meas_date_sec(raw)}
-	except Exception:
-		return {"has_data": False, "raw_data": np.empty((0, 0), dtype=np.float64), "raw_times_sec": np.empty((0,), dtype=np.float64), "channel_names": [], "sfreq_hz": float("nan"), "time_origin_meas_date_sec": float("nan")}
-
-
-def _compute_nearest_spectrogram_bin_idx(sample_times_sec: np.ndarray, spectrogram_times_sec: np.ndarray, max_samples_for_map: int = 2_000_000) -> Tuple[np.ndarray, bool]:
-	sample_times_sec = np.asarray(sample_times_sec, dtype=np.float64)
-	spectrogram_times_sec = np.asarray(spectrogram_times_sec, dtype=np.float64)
-	if sample_times_sec.size == 0:
-		return np.empty((0,), dtype=np.int64), True
-	if spectrogram_times_sec.size == 0:
-		return np.full(sample_times_sec.shape, -1, dtype=np.int64), True
-	if sample_times_sec.size > max_samples_for_map:
-		return np.empty((0,), dtype=np.int64), False
-	right_idx = np.searchsorted(spectrogram_times_sec, sample_times_sec, side="left")
-	right_idx = np.clip(right_idx, 0, spectrogram_times_sec.size - 1)
-	left_idx = np.clip(right_idx - 1, 0, spectrogram_times_sec.size - 1)
-	left_dist = np.abs(sample_times_sec - spectrogram_times_sec[left_idx])
-	right_dist = np.abs(sample_times_sec - spectrogram_times_sec[right_idx])
-	nearest = np.where(right_dist < left_dist, right_idx, left_idx).astype(np.int64)
-	return nearest, True
-
-
-def _build_alignment_export_payload(spectrogram_times_sec: np.ndarray, eeg_payload: Dict[str, Any], motion_payload: Dict[str, Any]) -> Dict[str, Any]:
-	spectrogram_times_sec = np.asarray(spectrogram_times_sec, dtype=np.float64)
-	eeg_nearest_idx, eeg_has_nearest_map = _compute_nearest_spectrogram_bin_idx(eeg_payload["raw_times_sec"], spectrogram_times_sec)
-	motion_nearest_idx, motion_has_nearest_map = _compute_nearest_spectrogram_bin_idx(motion_payload["raw_times_sec"], spectrogram_times_sec)
-	if spectrogram_times_sec.size > 0:
-		spectrogram_start_time_sec = float(spectrogram_times_sec[0])
-		spectrogram_end_time_sec = float(spectrogram_times_sec[-1])
-	else:
-		spectrogram_start_time_sec = float("nan")
-		spectrogram_end_time_sec = float("nan")
-	return {"alignment_method": "raw_plus_map", "spectrogram_times_sec": spectrogram_times_sec, "spectrogram_start_time_sec": spectrogram_start_time_sec, "spectrogram_end_time_sec": spectrogram_end_time_sec, "eeg_time_origin_meas_date_sec": float(eeg_payload["time_origin_meas_date_sec"]), "motion_time_origin_meas_date_sec": float(motion_payload["time_origin_meas_date_sec"]), "eeg_nearest_spectrogram_bin_idx": eeg_nearest_idx, "motion_nearest_spectrogram_bin_idx": motion_nearest_idx, "eeg_has_nearest_map": bool(eeg_has_nearest_map), "motion_has_nearest_map": bool(motion_has_nearest_map)}
-
-
-def export_spectrograms_for_rerun(active_only_out_eeg_raws, results, output_dir: Path, freq_min: float = 1.0, freq_max: float = 40.0, filename_prefix: str = "", active_only_out_motion_raws: Optional[List[Optional[mne.io.BaseRaw]]] = None) -> List[Path]:
-	"""
-	Export spectrograms and session datetimes to one NumPy .npz file per session under output_dir for later viewing in Rerun (e.g. via view_spectrograms_rerun.py).
-
-	Each file contains: freq_min, freq_max, session_indices=[0], s0_meas_date_sec, s0_channel_names, s0_freqs, s0_times, s0_Sxx.
-	Frequency range is restricted to [freq_min, freq_max]. Each .npz can be passed to view_spectrograms_rerun.py independently.
-	"""
-	output_dir = Path(output_dir)
-	output_dir.mkdir(parents=True, exist_ok=True)
-	written_paths: List[Path] = []
-	used_session_ids: set = set()
-	for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
-		try:
-			if a_result is None or "spectogram" not in a_result:
+			except Exception as e:
+				print(f'  ERROR exporting session {idx}: {e}')
 				continue
-			meas_date = a_raw.info.get("meas_date")
-			if meas_date is None:
-				meas_date_sec = float("nan")
-				session_id = f"session_{idx:03d}"
-			else:
-				if getattr(meas_date, "tzinfo", None) is None:
-					meas_date = meas_date.replace(tzinfo=timezone.utc)
-				meas_date_sec = meas_date.timestamp()
-				session_id = meas_date.strftime("%Y-%m-%dT%H-%M-%S")
-			base_id = session_id
-			while session_id in used_session_ids:
-				suffix = sum(1 for s in used_session_ids if s == base_id or (isinstance(s, str) and s.startswith(base_id + "_")))
-				session_id = f"{base_id}_{suffix}"
-			used_session_ids.add(session_id)
-			spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
-			channel_names = np.array(list(spectogram_result_dict.keys()), dtype=object)
-			f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
-			freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
-			freqs = np.asarray(f0)[freq_mask]
-			times = np.asarray(t0)
-			Sxx_list = []
-			for ch_name in channel_names:
-				f, t, Sxx = spectogram_result_dict[ch_name]
-				Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
-			Sxx_stack = np.stack(Sxx_list, axis=0)
-			eeg_payload = _extract_raw_export_payload(a_raw)
-			motion_raw = active_only_out_motion_raws[idx] if (active_only_out_motion_raws is not None and idx < len(active_only_out_motion_raws)) else None
-			motion_payload = _extract_raw_export_payload(motion_raw)
-			alignment_payload = _build_alignment_export_payload(times, eeg_payload, motion_payload)
-			export_dict = {"freq_min": np.array(freq_min), "freq_max": np.array(freq_max), "session_indices": np.array([0])}
-			export_dict["s0_meas_date_sec"] = np.array(meas_date_sec)
-			export_dict["s0_channel_names"] = channel_names
-			export_dict["s0_freqs"] = freqs
-			export_dict["s0_times"] = times
-			export_dict["s0_Sxx"] = Sxx_stack
-			export_dict["s0_eeg_raw_data"] = eeg_payload["raw_data"]
-			export_dict["s0_eeg_raw_times_sec"] = eeg_payload["raw_times_sec"]
-			export_dict["s0_eeg_channel_names"] = np.array(eeg_payload["channel_names"], dtype=object)
-			export_dict["s0_has_motion"] = np.array(bool(motion_payload["has_data"]))
-			export_dict["s0_motion_raw_data"] = motion_payload["raw_data"]
-			export_dict["s0_motion_raw_times_sec"] = motion_payload["raw_times_sec"]
-			export_dict["s0_motion_channel_names"] = np.array(motion_payload["channel_names"], dtype=object)
-			export_dict["s0_alignment_method"] = np.array(alignment_payload["alignment_method"], dtype=object)
-			export_dict["s0_spectrogram_times_sec"] = alignment_payload["spectrogram_times_sec"]
-			export_dict["s0_spectrogram_start_time_sec"] = np.array(alignment_payload["spectrogram_start_time_sec"])
-			export_dict["s0_spectrogram_end_time_sec"] = np.array(alignment_payload["spectrogram_end_time_sec"])
-			export_dict["s0_eeg_time_origin_meas_date_sec"] = np.array(alignment_payload["eeg_time_origin_meas_date_sec"])
-			export_dict["s0_motion_time_origin_meas_date_sec"] = np.array(alignment_payload["motion_time_origin_meas_date_sec"])
-			export_dict["s0_eeg_has_nearest_map"] = np.array(alignment_payload["eeg_has_nearest_map"])
-			export_dict["s0_motion_has_nearest_map"] = np.array(alignment_payload["motion_has_nearest_map"])
-			export_dict["s0_eeg_nearest_spectrogram_bin_idx"] = alignment_payload["eeg_nearest_spectrogram_bin_idx"]
-			export_dict["s0_motion_nearest_spectrogram_bin_idx"] = alignment_payload["motion_nearest_spectrogram_bin_idx"]
-			session_filename = f"{filename_prefix}spectrograms_{session_id}.npz"
-			out_path = output_dir / session_filename
-			np.savez_compressed(out_path, **export_dict)
-			written_paths.append(out_path)
-		except Exception as e:
-			print(f"  WARN: export_spectrograms_for_rerun skipped session {idx}: {e}")
-			continue
-	if written_paths:
-		print(f"Exported {len(written_paths)} spectrogram .npz file(s) for Rerun to: {output_dir.as_posix()}")
-	return written_paths
+
+		print(f'\nExported {len(html_files)} spectrogram HTML files to: {output_folder}')
+		return html_files
 
 
-def export_spectrograms_hdf5(active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0, stream_infos_df: Optional[pd.DataFrame] = None, active_only_out_motion_raws: Optional[List[Optional[mne.io.BaseRaw]]] = None) -> Path:
-	"""
-	Export spectrograms, timestamps, and recording metadata to a single HDF5 file for interchange.
+	@classmethod
+	def export_combined_spectrograms_html(cls, active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0, max_sessions_per_page: int = 10):
+		"""
+		Export a single HTML file with all session spectrograms in a scrollable layout.
 
-	The output can be read by Python (h5py), MATLAB, R, Julia, and other tools. Each session is stored
-	under /sessions/session_XXX with datasets: freqs (Hz), times (s), channel_names, spectrogram
-	(n_channels x n_freqs x n_times), and group attributes: meas_date_iso, meas_date_sec, sfreq_hz,
-	duration_s, n_channels; if stream_infos_df is provided, xdf_filename is attached per session.
-	"""
-	output_path = Path(output_path)
-	output_path.parent.mkdir(parents=True, exist_ok=True)
-	dataset_to_filename: Dict[int, str] = {}
-	if stream_infos_df is not None:
+		Creates one HTML file with:
+		- All sessions stacked vertically
+		- Session selector dropdown
+		- Synchronized time axes across channels
+		- Compact view for comparison
+
+		Args:
+			active_only_out_eeg_raws: List of mne.io.Raw EEG sessions
+			results: List of computation results
+			output_path: Path for the output HTML file
+			freq_min: Minimum frequency (Hz)
+			freq_max: Maximum frequency (Hz)
+			max_sessions_per_page: Maximum sessions to include (for performance)
+
+		Returns:
+			Path to created HTML file
+
+		Usage:
+			html_file = export_combined_spectrograms_html(
+				active_only_out_eeg_raws, results,
+				outputs_root_folder / "all_spectrograms.html"
+			)
+		"""
+		output_path = Path(output_path)
+		output_path.parent.mkdir(parents=True, exist_ok=True)
+
+		# Limit sessions for performance
+		n_sessions = min(len(active_only_out_eeg_raws), max_sessions_per_page)
+
+		all_session_layouts = []
+
+		for idx in range(n_sessions):
+			a_raw = active_only_out_eeg_raws[idx]
+			a_result = results[idx]
+
+			try:
+				# Get session metadata
+				meas_date = a_raw.info.get('meas_date')
+				if meas_date:
+					session_title = meas_date.strftime('%Y-%m-%d %H:%M:%S')
+				else:
+					session_title = f"Session {idx}"
+
+				# Extract spectrogram data
+				spectogram_result_dict = a_result['spectogram']['spectogram_result_dict']
+				channel_bad_intervals = _get_channel_bad_intervals(a_raw, list(spectogram_result_dict.keys()))
+
+				# Create compact channel plots
+				channel_plots = []
+
+				for ch_name, (f, t, Sxx) in spectogram_result_dict.items():
+					Sxx_db = 10 * np.log10(Sxx + 1e-12)
+
+					# Filter frequency
+					freq_mask = (f >= freq_min) & (f <= freq_max)
+					f_filtered = f[freq_mask]
+					Sxx_filtered = Sxx_db[freq_mask, :]
+
+					# Create compact plot
+					da = xr.DataArray(
+						Sxx_filtered,
+						coords={'frequency': f_filtered, 'time': t},
+						dims=['frequency', 'time']
+					)
+
+					img = da.hvplot.image(
+						x='time', y='frequency',
+						cmap='viridis',
+						title=f'{ch_name}',
+						xlabel='',
+						ylabel='Hz',
+						width=800,
+						height=80,
+						colorbar=False,
+						tools=['hover', 'pan', 'wheel_zoom', 'reset']
+					)
+
+					bad_intervals = channel_bad_intervals.get(ch_name, [])
+					t_min, t_max = float(np.min(t)), float(np.max(t))
+					f_min, f_max = float(f_filtered.min()), float(f_filtered.max())
+					if bad_intervals:
+						rect_data = []
+						for start, end in bad_intervals:
+							start_c = max(start, t_min)
+							end_c = min(end, t_max)
+							if start_c < end_c:
+								rect_data.append((start_c, f_min, end_c, f_max))
+						if rect_data:
+							rects = hv.Rectangles(rect_data, kdims=['time', 'frequency', 'time', 'frequency']).opts(alpha=0.35, color='red', line_alpha=0)
+							channel_plots.append(img * rects)
+						else:
+							channel_plots.append(img)
+					else:
+						channel_plots.append(img)
+
+				# Create session layout
+				session_layout = hv.Layout(channel_plots).cols(1).opts(
+					title=f'{session_title}'
+				)
+
+				all_session_layouts.append(session_layout)
+
+			except Exception as e:
+				print(f'  ERROR processing session {idx}: {e}')
+				continue
+
+		# Combine all sessions
+		combined = hv.Layout(all_session_layouts).cols(1)
+
+		# Save to HTML
+		hv.save(combined, output_path, backend='bokeh')
+
+		print(f'\nExported combined spectrogram HTML with {len(all_session_layouts)} sessions to: {output_path}')
+		return output_path
+
+
+	@classmethod
+	def _safe_meas_date_sec(cls, raw: Optional[mne.io.BaseRaw]) -> float:
+		if raw is None:
+			return float("nan")
+		meas_date = raw.info.get("meas_date")
+		if meas_date is None:
+			return float("nan")
+		if getattr(meas_date, "tzinfo", None) is None:
+			meas_date = meas_date.replace(tzinfo=timezone.utc)
+		return float(meas_date.timestamp())
+
+
+	@classmethod
+	def _extract_raw_export_payload(cls, raw: Optional[mne.io.BaseRaw]) -> Dict[str, Any]:
+		if raw is None:
+			return {"has_data": False, "raw_data": np.empty((0, 0), dtype=np.float64), "raw_times_sec": np.empty((0,), dtype=np.float64), "channel_names": [], "sfreq_hz": float("nan"), "time_origin_meas_date_sec": float("nan")}
 		try:
-			tmp_df = stream_infos_df.reset_index()
-			if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
-				for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
-					dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
-		except Exception as e:
-			print(f"  WARN: export_spectrograms_hdf5 failed to derive dataset -> filename mapping: {e}")
-	session_indices: List[int] = []
-	with h5py.File(output_path, "w") as f:
-		f.attrs["format_version"] = "1.0"
-		f.attrs["freq_min"] = float(freq_min)
-		f.attrs["freq_max"] = float(freq_max)
-		sessions_grp = f.create_group("sessions")
+			raw_data = np.asarray(raw.get_data(), dtype=np.float64)
+			raw_times_sec = np.asarray(raw.times, dtype=np.float64)
+			channel_names = [str(v) for v in raw.info.get("ch_names", [])]
+			sfreq_hz = float(raw.info.get("sfreq", float("nan")))
+			return {"has_data": True, "raw_data": raw_data, "raw_times_sec": raw_times_sec, "channel_names": channel_names, "sfreq_hz": sfreq_hz, "time_origin_meas_date_sec": cls._safe_meas_date_sec(raw)}
+		except Exception:
+			return {"has_data": False, "raw_data": np.empty((0, 0), dtype=np.float64), "raw_times_sec": np.empty((0,), dtype=np.float64), "channel_names": [], "sfreq_hz": float("nan"), "time_origin_meas_date_sec": float("nan")}
+
+
+	@classmethod
+	def _compute_nearest_spectrogram_bin_idx(cls, sample_times_sec: np.ndarray, spectrogram_times_sec: np.ndarray, max_samples_for_map: int = 2_000_000) -> Tuple[np.ndarray, bool]:
+		sample_times_sec = np.asarray(sample_times_sec, dtype=np.float64)
+		spectrogram_times_sec = np.asarray(spectrogram_times_sec, dtype=np.float64)
+		if sample_times_sec.size == 0:
+			return np.empty((0,), dtype=np.int64), True
+		if spectrogram_times_sec.size == 0:
+			return np.full(sample_times_sec.shape, -1, dtype=np.int64), True
+		if sample_times_sec.size > max_samples_for_map:
+			return np.empty((0,), dtype=np.int64), False
+		right_idx = np.searchsorted(spectrogram_times_sec, sample_times_sec, side="left")
+		right_idx = np.clip(right_idx, 0, spectrogram_times_sec.size - 1)
+		left_idx = np.clip(right_idx - 1, 0, spectrogram_times_sec.size - 1)
+		left_dist = np.abs(sample_times_sec - spectrogram_times_sec[left_idx])
+		right_dist = np.abs(sample_times_sec - spectrogram_times_sec[right_idx])
+		nearest = np.where(right_dist < left_dist, right_idx, left_idx).astype(np.int64)
+		return nearest, True
+
+
+	@classmethod
+	def _build_alignment_export_payload(cls, spectrogram_times_sec: np.ndarray, eeg_payload: Dict[str, Any], motion_payload: Dict[str, Any]) -> Dict[str, Any]:
+		spectrogram_times_sec = np.asarray(spectrogram_times_sec, dtype=np.float64)
+		eeg_nearest_idx, eeg_has_nearest_map = cls._compute_nearest_spectrogram_bin_idx(eeg_payload["raw_times_sec"], spectrogram_times_sec)
+		motion_nearest_idx, motion_has_nearest_map = cls._compute_nearest_spectrogram_bin_idx(motion_payload["raw_times_sec"], spectrogram_times_sec)
+		if spectrogram_times_sec.size > 0:
+			spectrogram_start_time_sec = float(spectrogram_times_sec[0])
+			spectrogram_end_time_sec = float(spectrogram_times_sec[-1])
+		else:
+			spectrogram_start_time_sec = float("nan")
+			spectrogram_end_time_sec = float("nan")
+		return {"alignment_method": "raw_plus_map", "spectrogram_times_sec": spectrogram_times_sec, "spectrogram_start_time_sec": spectrogram_start_time_sec, "spectrogram_end_time_sec": spectrogram_end_time_sec, "eeg_time_origin_meas_date_sec": float(eeg_payload["time_origin_meas_date_sec"]), "motion_time_origin_meas_date_sec": float(motion_payload["time_origin_meas_date_sec"]), "eeg_nearest_spectrogram_bin_idx": eeg_nearest_idx, "motion_nearest_spectrogram_bin_idx": motion_nearest_idx, "eeg_has_nearest_map": bool(eeg_has_nearest_map), "motion_has_nearest_map": bool(motion_has_nearest_map)}
+
+
+	@classmethod
+	def export_spectrograms_for_rerun(cls, active_only_out_eeg_raws, results, output_dir: Path, freq_min: float = 1.0, freq_max: float = 40.0, filename_prefix: str = "", active_only_out_motion_raws: Optional[List[Optional[mne.io.BaseRaw]]] = None) -> List[Path]:
+		"""
+		Export spectrograms and session datetimes to one NumPy .npz file per session under output_dir for later viewing in Rerun (e.g. via view_spectrograms_rerun.py).
+
+		Each file contains: freq_min, freq_max, session_indices=[0], s0_meas_date_sec, s0_channel_names, s0_freqs, s0_times, s0_Sxx.
+		Frequency range is restricted to [freq_min, freq_max]. Each .npz can be passed to view_spectrograms_rerun.py independently.
+		"""
+		output_dir = Path(output_dir)
+		output_dir.mkdir(parents=True, exist_ok=True)
+		written_paths: List[Path] = []
+		used_session_ids: set = set()
+		for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
+			try:
+				if a_result is None or "spectogram" not in a_result:
+					continue
+				meas_date = a_raw.info.get("meas_date")
+				if meas_date is None:
+					meas_date_sec = float("nan")
+					session_id = f"session_{idx:03d}"
+				else:
+					if getattr(meas_date, "tzinfo", None) is None:
+						meas_date = meas_date.replace(tzinfo=timezone.utc)
+					meas_date_sec = meas_date.timestamp()
+					session_id = meas_date.strftime("%Y-%m-%dT%H-%M-%S")
+				base_id = session_id
+				while session_id in used_session_ids:
+					suffix = sum(1 for s in used_session_ids if s == base_id or (isinstance(s, str) and s.startswith(base_id + "_")))
+					session_id = f"{base_id}_{suffix}"
+				used_session_ids.add(session_id)
+				spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
+				channel_names = np.array(list(spectogram_result_dict.keys()), dtype=object)
+				f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
+				freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
+				freqs = np.asarray(f0)[freq_mask]
+				times = np.asarray(t0)
+				Sxx_list = []
+				for ch_name in channel_names:
+					f, t, Sxx = spectogram_result_dict[ch_name]
+					Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
+				Sxx_stack = np.stack(Sxx_list, axis=0)
+				eeg_payload = cls._extract_raw_export_payload(a_raw)
+				motion_raw = active_only_out_motion_raws[idx] if (active_only_out_motion_raws is not None and idx < len(active_only_out_motion_raws)) else None
+				motion_payload = cls._extract_raw_export_payload(motion_raw)
+				alignment_payload = cls._build_alignment_export_payload(times, eeg_payload, motion_payload)
+				export_dict = {"freq_min": np.array(freq_min), "freq_max": np.array(freq_max), "session_indices": np.array([0])}
+				export_dict["s0_meas_date_sec"] = np.array(meas_date_sec)
+				export_dict["s0_channel_names"] = channel_names
+				export_dict["s0_freqs"] = freqs
+				export_dict["s0_times"] = times
+				export_dict["s0_Sxx"] = Sxx_stack
+				export_dict["s0_eeg_raw_data"] = eeg_payload["raw_data"]
+				export_dict["s0_eeg_raw_times_sec"] = eeg_payload["raw_times_sec"]
+				export_dict["s0_eeg_channel_names"] = np.array(eeg_payload["channel_names"], dtype=object)
+				export_dict["s0_has_motion"] = np.array(bool(motion_payload["has_data"]))
+				export_dict["s0_motion_raw_data"] = motion_payload["raw_data"]
+				export_dict["s0_motion_raw_times_sec"] = motion_payload["raw_times_sec"]
+				export_dict["s0_motion_channel_names"] = np.array(motion_payload["channel_names"], dtype=object)
+				export_dict["s0_alignment_method"] = np.array(alignment_payload["alignment_method"], dtype=object)
+				export_dict["s0_spectrogram_times_sec"] = alignment_payload["spectrogram_times_sec"]
+				export_dict["s0_spectrogram_start_time_sec"] = np.array(alignment_payload["spectrogram_start_time_sec"])
+				export_dict["s0_spectrogram_end_time_sec"] = np.array(alignment_payload["spectrogram_end_time_sec"])
+				export_dict["s0_eeg_time_origin_meas_date_sec"] = np.array(alignment_payload["eeg_time_origin_meas_date_sec"])
+				export_dict["s0_motion_time_origin_meas_date_sec"] = np.array(alignment_payload["motion_time_origin_meas_date_sec"])
+				export_dict["s0_eeg_has_nearest_map"] = np.array(alignment_payload["eeg_has_nearest_map"])
+				export_dict["s0_motion_has_nearest_map"] = np.array(alignment_payload["motion_has_nearest_map"])
+				export_dict["s0_eeg_nearest_spectrogram_bin_idx"] = alignment_payload["eeg_nearest_spectrogram_bin_idx"]
+				export_dict["s0_motion_nearest_spectrogram_bin_idx"] = alignment_payload["motion_nearest_spectrogram_bin_idx"]
+				session_filename = f"{filename_prefix}spectrograms_{session_id}.npz"
+				out_path = output_dir / session_filename
+				np.savez_compressed(out_path, **export_dict)
+				written_paths.append(out_path)
+			except Exception as e:
+				print(f"  WARN: export_spectrograms_for_rerun skipped session {idx}: {e}")
+				continue
+		if written_paths:
+			print(f"Exported {len(written_paths)} spectrogram .npz file(s) for Rerun to: {output_dir.as_posix()}")
+		return written_paths
+
+
+	@classmethod
+	def export_spectrograms_hdf5(cls, active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0, stream_infos_df: Optional[pd.DataFrame] = None, active_only_out_motion_raws: Optional[List[Optional[mne.io.BaseRaw]]] = None) -> Path:
+		"""
+		Export spectrograms, timestamps, and recording metadata to a single HDF5 file for interchange.
+
+		The output can be read by Python (h5py), MATLAB, R, Julia, and other tools. Each session is stored
+		under /sessions/session_XXX with datasets: freqs (Hz), times (s), channel_names, spectrogram
+		(n_channels x n_freqs x n_times), and group attributes: meas_date_iso, meas_date_sec, sfreq_hz,
+		duration_s, n_channels; if stream_infos_df is provided, xdf_filename is attached per session.
+		"""
+		output_path = Path(output_path)
+		output_path.parent.mkdir(parents=True, exist_ok=True)
+		dataset_to_filename: Dict[int, str] = {}
+		if stream_infos_df is not None:
+			try:
+				tmp_df = stream_infos_df.reset_index()
+				if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
+					for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
+						dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
+			except Exception as e:
+				print(f"  WARN: export_spectrograms_hdf5 failed to derive dataset -> filename mapping: {e}")
+		session_indices: List[int] = []
+		with h5py.File(output_path, "w") as f:
+			f.attrs["format_version"] = "1.0"
+			f.attrs["freq_min"] = float(freq_min)
+			f.attrs["freq_max"] = float(freq_max)
+			sessions_grp = f.create_group("sessions")
+			for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
+				try:
+					if a_result is None or "spectogram" not in a_result:
+						continue
+					meas_date = a_raw.info.get("meas_date")
+					if meas_date is None:
+						meas_date_sec = float("nan")
+						meas_date_iso = ""
+					else:
+						if getattr(meas_date, "tzinfo", None) is None:
+							meas_date = meas_date.replace(tzinfo=timezone.utc)
+						meas_date_sec = meas_date.timestamp()
+						meas_date_iso = meas_date.isoformat()
+					spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
+					channel_names = list(spectogram_result_dict.keys())
+					f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
+					freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
+					freqs = np.asarray(f0)[freq_mask]
+					times = np.asarray(t0)
+					Sxx_list = []
+					for ch_name in channel_names:
+						f_ch, t_ch, Sxx = spectogram_result_dict[ch_name]
+						Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
+					Sxx_stack = np.stack(Sxx_list, axis=0)
+					eeg_payload = cls._extract_raw_export_payload(a_raw)
+					motion_raw = active_only_out_motion_raws[idx] if (active_only_out_motion_raws is not None and idx < len(active_only_out_motion_raws)) else None
+					motion_payload = cls._extract_raw_export_payload(motion_raw)
+					alignment_payload = cls._build_alignment_export_payload(times, eeg_payload, motion_payload)
+					try:
+						duration_s = float(a_raw.times[-1] - a_raw.times[0]) if a_raw.times.size > 0 else float("nan")
+					except Exception:
+						duration_s = float("nan")
+					sfreq_hz = float(a_raw.info.get("sfreq", float("nan")))
+					n_channels = len(channel_names)
+					sgrp = sessions_grp.create_group(f"session_{idx:03d}")
+					sgrp.create_dataset("freqs", data=freqs, dtype=np.float64)
+					sgrp.create_dataset("times", data=times, dtype=np.float64)
+					dt_str = h5py.special_dtype(vlen=str)
+					ch_dset = sgrp.create_dataset("channel_names", (len(channel_names),), dtype=dt_str)
+					ch_dset[:] = channel_names
+					sgrp.create_dataset("spectrogram", data=Sxx_stack, dtype=np.float64)
+					eeg_grp = sgrp.create_group("eeg")
+					eeg_grp.create_dataset("raw_data", data=eeg_payload["raw_data"], dtype=np.float64)
+					eeg_grp.create_dataset("raw_times_sec", data=eeg_payload["raw_times_sec"], dtype=np.float64)
+					eeg_ch_dset = eeg_grp.create_dataset("channel_names", (len(eeg_payload["channel_names"]),), dtype=dt_str)
+					if len(eeg_payload["channel_names"]) > 0:
+						eeg_ch_dset[:] = eeg_payload["channel_names"]
+					eeg_grp.attrs["sfreq_hz"] = float(eeg_payload["sfreq_hz"])
+					eeg_grp.attrs["time_origin_meas_date_sec"] = float(eeg_payload["time_origin_meas_date_sec"])
+					motion_grp = sgrp.create_group("motion")
+					motion_grp.attrs["has_motion"] = bool(motion_payload["has_data"])
+					motion_grp.create_dataset("raw_data", data=motion_payload["raw_data"], dtype=np.float64)
+					motion_grp.create_dataset("raw_times_sec", data=motion_payload["raw_times_sec"], dtype=np.float64)
+					motion_ch_dset = motion_grp.create_dataset("channel_names", (len(motion_payload["channel_names"]),), dtype=dt_str)
+					if len(motion_payload["channel_names"]) > 0:
+						motion_ch_dset[:] = motion_payload["channel_names"]
+					motion_grp.attrs["sfreq_hz"] = float(motion_payload["sfreq_hz"])
+					motion_grp.attrs["time_origin_meas_date_sec"] = float(motion_payload["time_origin_meas_date_sec"])
+					alignment_grp = sgrp.create_group("alignment")
+					alignment_grp.attrs["alignment_method"] = alignment_payload["alignment_method"]
+					alignment_grp.attrs["eeg_has_nearest_map"] = bool(alignment_payload["eeg_has_nearest_map"])
+					alignment_grp.attrs["motion_has_nearest_map"] = bool(alignment_payload["motion_has_nearest_map"])
+					alignment_grp.attrs["spectrogram_start_time_sec"] = float(alignment_payload["spectrogram_start_time_sec"])
+					alignment_grp.attrs["spectrogram_end_time_sec"] = float(alignment_payload["spectrogram_end_time_sec"])
+					alignment_grp.create_dataset("spectrogram_times_sec", data=alignment_payload["spectrogram_times_sec"], dtype=np.float64)
+					alignment_grp.create_dataset("eeg_nearest_spectrogram_bin_idx", data=alignment_payload["eeg_nearest_spectrogram_bin_idx"], dtype=np.int64)
+					alignment_grp.create_dataset("motion_nearest_spectrogram_bin_idx", data=alignment_payload["motion_nearest_spectrogram_bin_idx"], dtype=np.int64)
+					sgrp.attrs["meas_date_iso"] = meas_date_iso
+					sgrp.attrs["meas_date_sec"] = meas_date_sec
+					sgrp.attrs["sfreq_hz"] = sfreq_hz
+					sgrp.attrs["duration_s"] = duration_s
+					sgrp.attrs["n_channels"] = n_channels
+					sgrp.attrs["has_motion"] = bool(motion_payload["has_data"])
+					xdf_filename = dataset_to_filename.get(idx)
+					if xdf_filename is not None:
+						sgrp.attrs["xdf_filename"] = str(xdf_filename)
+					session_indices.append(idx)
+				except Exception as e:
+					print(f"  WARN: export_spectrograms_hdf5 skipped session {idx}: {e}")
+					continue
+			f.attrs["n_sessions"] = len(session_indices)
+		print(f"Exported spectrograms to HDF5: {output_path.as_posix()}")
+		return output_path
+
+
+	@classmethod
+	def export_spectrograms_netcdf(cls, active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0, stream_infos_df: Optional[pd.DataFrame] = None, active_only_out_motion_raws: Optional[List[Optional[mne.io.BaseRaw]]] = None) -> Path:
+		"""
+		Export spectrograms, timestamps, and recording metadata to a single CF-friendly NetCDF file for interchange.
+
+		The output can be read by Python (xarray/netCDF4), R, Julia, MATLAB, and other tools. Stores spectrograms
+		(session, channel, freq, time), time/freq axes with NaN padding for variable-length sessions, and
+		session-level metadata (meas_date_iso, meas_date_sec, sfreq_hz, duration_s, n_channels, xdf_filename).
+		"""
+		output_path = Path(output_path)
+		output_path.parent.mkdir(parents=True, exist_ok=True)
+		dataset_to_filename: Dict[int, str] = {}
+		if stream_infos_df is not None:
+			try:
+				tmp_df = stream_infos_df.reset_index()
+				if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
+					for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
+						dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
+			except Exception as e:
+				print(f"  WARN: export_spectrograms_netcdf failed to derive dataset -> filename mapping: {e}")
+		session_rows: List[Dict[str, Any]] = []
 		for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
 			try:
 				if a_result is None or "spectogram" not in a_result:
@@ -756,299 +868,195 @@ def export_spectrograms_hdf5(active_only_out_eeg_raws, results, output_path: Pat
 				times = np.asarray(t0)
 				Sxx_list = []
 				for ch_name in channel_names:
-					f_ch, t_ch, Sxx = spectogram_result_dict[ch_name]
+					f, t, Sxx = spectogram_result_dict[ch_name]
 					Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
 				Sxx_stack = np.stack(Sxx_list, axis=0)
-				eeg_payload = _extract_raw_export_payload(a_raw)
+				eeg_payload = cls._extract_raw_export_payload(a_raw)
 				motion_raw = active_only_out_motion_raws[idx] if (active_only_out_motion_raws is not None and idx < len(active_only_out_motion_raws)) else None
-				motion_payload = _extract_raw_export_payload(motion_raw)
-				alignment_payload = _build_alignment_export_payload(times, eeg_payload, motion_payload)
+				motion_payload = cls._extract_raw_export_payload(motion_raw)
+				alignment_payload = cls._build_alignment_export_payload(times, eeg_payload, motion_payload)
 				try:
 					duration_s = float(a_raw.times[-1] - a_raw.times[0]) if a_raw.times.size > 0 else float("nan")
 				except Exception:
 					duration_s = float("nan")
 				sfreq_hz = float(a_raw.info.get("sfreq", float("nan")))
-				n_channels = len(channel_names)
-				sgrp = sessions_grp.create_group(f"session_{idx:03d}")
-				sgrp.create_dataset("freqs", data=freqs, dtype=np.float64)
-				sgrp.create_dataset("times", data=times, dtype=np.float64)
-				dt_str = h5py.special_dtype(vlen=str)
-				ch_dset = sgrp.create_dataset("channel_names", (len(channel_names),), dtype=dt_str)
-				ch_dset[:] = channel_names
-				sgrp.create_dataset("spectrogram", data=Sxx_stack, dtype=np.float64)
-				eeg_grp = sgrp.create_group("eeg")
-				eeg_grp.create_dataset("raw_data", data=eeg_payload["raw_data"], dtype=np.float64)
-				eeg_grp.create_dataset("raw_times_sec", data=eeg_payload["raw_times_sec"], dtype=np.float64)
-				eeg_ch_dset = eeg_grp.create_dataset("channel_names", (len(eeg_payload["channel_names"]),), dtype=dt_str)
-				if len(eeg_payload["channel_names"]) > 0:
-					eeg_ch_dset[:] = eeg_payload["channel_names"]
-				eeg_grp.attrs["sfreq_hz"] = float(eeg_payload["sfreq_hz"])
-				eeg_grp.attrs["time_origin_meas_date_sec"] = float(eeg_payload["time_origin_meas_date_sec"])
-				motion_grp = sgrp.create_group("motion")
-				motion_grp.attrs["has_motion"] = bool(motion_payload["has_data"])
-				motion_grp.create_dataset("raw_data", data=motion_payload["raw_data"], dtype=np.float64)
-				motion_grp.create_dataset("raw_times_sec", data=motion_payload["raw_times_sec"], dtype=np.float64)
-				motion_ch_dset = motion_grp.create_dataset("channel_names", (len(motion_payload["channel_names"]),), dtype=dt_str)
-				if len(motion_payload["channel_names"]) > 0:
-					motion_ch_dset[:] = motion_payload["channel_names"]
-				motion_grp.attrs["sfreq_hz"] = float(motion_payload["sfreq_hz"])
-				motion_grp.attrs["time_origin_meas_date_sec"] = float(motion_payload["time_origin_meas_date_sec"])
-				alignment_grp = sgrp.create_group("alignment")
-				alignment_grp.attrs["alignment_method"] = alignment_payload["alignment_method"]
-				alignment_grp.attrs["eeg_has_nearest_map"] = bool(alignment_payload["eeg_has_nearest_map"])
-				alignment_grp.attrs["motion_has_nearest_map"] = bool(alignment_payload["motion_has_nearest_map"])
-				alignment_grp.attrs["spectrogram_start_time_sec"] = float(alignment_payload["spectrogram_start_time_sec"])
-				alignment_grp.attrs["spectrogram_end_time_sec"] = float(alignment_payload["spectrogram_end_time_sec"])
-				alignment_grp.create_dataset("spectrogram_times_sec", data=alignment_payload["spectrogram_times_sec"], dtype=np.float64)
-				alignment_grp.create_dataset("eeg_nearest_spectrogram_bin_idx", data=alignment_payload["eeg_nearest_spectrogram_bin_idx"], dtype=np.int64)
-				alignment_grp.create_dataset("motion_nearest_spectrogram_bin_idx", data=alignment_payload["motion_nearest_spectrogram_bin_idx"], dtype=np.int64)
-				sgrp.attrs["meas_date_iso"] = meas_date_iso
-				sgrp.attrs["meas_date_sec"] = meas_date_sec
-				sgrp.attrs["sfreq_hz"] = sfreq_hz
-				sgrp.attrs["duration_s"] = duration_s
-				sgrp.attrs["n_channels"] = n_channels
-				sgrp.attrs["has_motion"] = bool(motion_payload["has_data"])
 				xdf_filename = dataset_to_filename.get(idx)
-				if xdf_filename is not None:
-					sgrp.attrs["xdf_filename"] = str(xdf_filename)
-				session_indices.append(idx)
+				session_rows.append({"session_idx": idx, "meas_date_iso": meas_date_iso, "meas_date_sec": meas_date_sec, "sfreq_hz": sfreq_hz, "duration_s": duration_s, "n_channels": len(channel_names), "xdf_filename": str(xdf_filename) if xdf_filename is not None else "", "channel_names": channel_names, "freqs": freqs, "times": times, "spectrogram": Sxx_stack, "eeg": eeg_payload, "motion": motion_payload, "alignment": alignment_payload})
 			except Exception as e:
-				print(f"  WARN: export_spectrograms_hdf5 skipped session {idx}: {e}")
+				print(f"  WARN: export_spectrograms_netcdf skipped session {idx}: {e}")
 				continue
-		f.attrs["n_sessions"] = len(session_indices)
-	print(f"Exported spectrograms to HDF5: {output_path.as_posix()}")
-	return output_path
-
-
-def export_spectrograms_netcdf(active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0, stream_infos_df: Optional[pd.DataFrame] = None, active_only_out_motion_raws: Optional[List[Optional[mne.io.BaseRaw]]] = None) -> Path:
-	"""
-	Export spectrograms, timestamps, and recording metadata to a single CF-friendly NetCDF file for interchange.
-
-	The output can be read by Python (xarray/netCDF4), R, Julia, MATLAB, and other tools. Stores spectrograms
-	(session, channel, freq, time), time/freq axes with NaN padding for variable-length sessions, and
-	session-level metadata (meas_date_iso, meas_date_sec, sfreq_hz, duration_s, n_channels, xdf_filename).
-	"""
-	output_path = Path(output_path)
-	output_path.parent.mkdir(parents=True, exist_ok=True)
-	dataset_to_filename: Dict[int, str] = {}
-	if stream_infos_df is not None:
-		try:
-			tmp_df = stream_infos_df.reset_index()
-			if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
-				for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
-					dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
-		except Exception as e:
-			print(f"  WARN: export_spectrograms_netcdf failed to derive dataset -> filename mapping: {e}")
-	session_rows: List[Dict[str, Any]] = []
-	for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
-		try:
-			if a_result is None or "spectogram" not in a_result:
-				continue
-			meas_date = a_raw.info.get("meas_date")
-			if meas_date is None:
-				meas_date_sec = float("nan")
-				meas_date_iso = ""
-			else:
-				if getattr(meas_date, "tzinfo", None) is None:
-					meas_date = meas_date.replace(tzinfo=timezone.utc)
-				meas_date_sec = meas_date.timestamp()
-				meas_date_iso = meas_date.isoformat()
-			spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
-			channel_names = list(spectogram_result_dict.keys())
-			f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
-			freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
-			freqs = np.asarray(f0)[freq_mask]
-			times = np.asarray(t0)
-			Sxx_list = []
-			for ch_name in channel_names:
-				f, t, Sxx = spectogram_result_dict[ch_name]
-				Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
-			Sxx_stack = np.stack(Sxx_list, axis=0)
-			eeg_payload = _extract_raw_export_payload(a_raw)
-			motion_raw = active_only_out_motion_raws[idx] if (active_only_out_motion_raws is not None and idx < len(active_only_out_motion_raws)) else None
-			motion_payload = _extract_raw_export_payload(motion_raw)
-			alignment_payload = _build_alignment_export_payload(times, eeg_payload, motion_payload)
-			try:
-				duration_s = float(a_raw.times[-1] - a_raw.times[0]) if a_raw.times.size > 0 else float("nan")
-			except Exception:
-				duration_s = float("nan")
-			sfreq_hz = float(a_raw.info.get("sfreq", float("nan")))
-			xdf_filename = dataset_to_filename.get(idx)
-			session_rows.append({"session_idx": idx, "meas_date_iso": meas_date_iso, "meas_date_sec": meas_date_sec, "sfreq_hz": sfreq_hz, "duration_s": duration_s, "n_channels": len(channel_names), "xdf_filename": str(xdf_filename) if xdf_filename is not None else "", "channel_names": channel_names, "freqs": freqs, "times": times, "spectrogram": Sxx_stack, "eeg": eeg_payload, "motion": motion_payload, "alignment": alignment_payload})
-		except Exception as e:
-			print(f"  WARN: export_spectrograms_netcdf skipped session {idx}: {e}")
-			continue
-	if not session_rows:
-		print("  WARN: export_spectrograms_netcdf had no valid sessions; writing empty NetCDF.")
-		ds_empty = xr.Dataset(attrs={"format_version": "1.1", "freq_min": float(freq_min), "freq_max": float(freq_max), "n_sessions": 0})
-		ds_empty.to_netcdf(output_path)
+		if not session_rows:
+			print("  WARN: export_spectrograms_netcdf had no valid sessions; writing empty NetCDF.")
+			ds_empty = xr.Dataset(attrs={"format_version": "1.1", "freq_min": float(freq_min), "freq_max": float(freq_max), "n_sessions": 0})
+			ds_empty.to_netcdf(output_path)
+			print(f"Exported spectrograms to NetCDF: {output_path.as_posix()}")
+			return output_path
+		n_sessions = len(session_rows)
+		n_channels = max(r["spectrogram"].shape[0] for r in session_rows)
+		n_freq = max(r["freqs"].size for r in session_rows)
+		n_time = max(r["times"].size for r in session_rows)
+		n_eeg_channels = max((r["eeg"]["raw_data"].shape[0] for r in session_rows), default=0)
+		n_eeg_samples = max((r["eeg"]["raw_times_sec"].size for r in session_rows), default=0)
+		n_motion_channels = max((r["motion"]["raw_data"].shape[0] for r in session_rows), default=0)
+		n_motion_samples = max((r["motion"]["raw_times_sec"].size for r in session_rows), default=0)
+		spectrogram_padded = np.full((n_sessions, n_channels, n_freq, n_time), np.nan, dtype=np.float64)
+		freqs_padded = np.full((n_sessions, n_freq), np.nan, dtype=np.float64)
+		times_padded = np.full((n_sessions, n_time), np.nan, dtype=np.float64)
+		eeg_raw_data_padded = np.full((n_sessions, n_eeg_channels, n_eeg_samples), np.nan, dtype=np.float64)
+		eeg_raw_times_padded = np.full((n_sessions, n_eeg_samples), np.nan, dtype=np.float64)
+		motion_raw_data_padded = np.full((n_sessions, n_motion_channels, n_motion_samples), np.nan, dtype=np.float64)
+		motion_raw_times_padded = np.full((n_sessions, n_motion_samples), np.nan, dtype=np.float64)
+		eeg_nearest_idx_padded = np.full((n_sessions, n_eeg_samples), -1, dtype=np.int64)
+		motion_nearest_idx_padded = np.full((n_sessions, n_motion_samples), -1, dtype=np.int64)
+		channel_names_padded = np.full((n_sessions, n_channels), "", dtype=object)
+		eeg_channel_names_padded = np.full((n_sessions, n_eeg_channels), "", dtype=object)
+		motion_channel_names_padded = np.full((n_sessions, n_motion_channels), "", dtype=object)
+		for i, r in enumerate(session_rows):
+			nc, nf, nt = r["spectrogram"].shape
+			spectrogram_padded[i, :nc, :nf, :nt] = r["spectrogram"]
+			freqs_padded[i, :r["freqs"].size] = r["freqs"]
+			times_padded[i, :r["times"].size] = r["times"]
+			eeg_data = r["eeg"]["raw_data"]
+			eeg_times = r["eeg"]["raw_times_sec"]
+			if eeg_data.ndim == 2 and eeg_data.size > 0:
+				eeg_raw_data_padded[i, :eeg_data.shape[0], :eeg_data.shape[1]] = eeg_data
+			if eeg_times.size > 0:
+				eeg_raw_times_padded[i, :eeg_times.size] = eeg_times
+			eeg_idx = r["alignment"]["eeg_nearest_spectrogram_bin_idx"]
+			if r["alignment"]["eeg_has_nearest_map"] and eeg_idx.size > 0:
+				eeg_nearest_idx_padded[i, :eeg_idx.size] = eeg_idx
+			motion_data = r["motion"]["raw_data"]
+			motion_times = r["motion"]["raw_times_sec"]
+			if motion_data.ndim == 2 and motion_data.size > 0:
+				motion_raw_data_padded[i, :motion_data.shape[0], :motion_data.shape[1]] = motion_data
+			if motion_times.size > 0:
+				motion_raw_times_padded[i, :motion_times.size] = motion_times
+			motion_idx = r["alignment"]["motion_nearest_spectrogram_bin_idx"]
+			if r["alignment"]["motion_has_nearest_map"] and motion_idx.size > 0:
+				motion_nearest_idx_padded[i, :motion_idx.size] = motion_idx
+			for j, name in enumerate(r["channel_names"]):
+				if j < n_channels:
+					channel_names_padded[i, j] = name
+			for j, name in enumerate(r["eeg"]["channel_names"]):
+				if j < n_eeg_channels:
+					eeg_channel_names_padded[i, j] = name
+			for j, name in enumerate(r["motion"]["channel_names"]):
+				if j < n_motion_channels:
+					motion_channel_names_padded[i, j] = name
+		meas_date_iso_arr = np.array([r["meas_date_iso"] for r in session_rows], dtype=object)
+		meas_date_sec_arr = np.array([r["meas_date_sec"] for r in session_rows], dtype=np.float64)
+		sfreq_hz_arr = np.array([r["sfreq_hz"] for r in session_rows], dtype=np.float64)
+		duration_s_arr = np.array([r["duration_s"] for r in session_rows], dtype=np.float64)
+		n_channels_arr = np.array([r["n_channels"] for r in session_rows], dtype=np.int64)
+		xdf_filename_arr = np.array([r["xdf_filename"] for r in session_rows], dtype=object)
+		has_motion_arr = np.array([1 if r["motion"]["has_data"] else 0 for r in session_rows], dtype=np.int8)
+		alignment_method_arr = np.array([r["alignment"]["alignment_method"] for r in session_rows], dtype=object)
+		spectrogram_start_time_sec_arr = np.array([r["alignment"]["spectrogram_start_time_sec"] for r in session_rows], dtype=np.float64)
+		spectrogram_end_time_sec_arr = np.array([r["alignment"]["spectrogram_end_time_sec"] for r in session_rows], dtype=np.float64)
+		eeg_time_origin_meas_date_sec_arr = np.array([r["alignment"]["eeg_time_origin_meas_date_sec"] for r in session_rows], dtype=np.float64)
+		motion_time_origin_meas_date_sec_arr = np.array([r["alignment"]["motion_time_origin_meas_date_sec"] for r in session_rows], dtype=np.float64)
+		eeg_has_nearest_map_arr = np.array([1 if r["alignment"]["eeg_has_nearest_map"] else 0 for r in session_rows], dtype=np.int8)
+		motion_has_nearest_map_arr = np.array([1 if r["alignment"]["motion_has_nearest_map"] else 0 for r in session_rows], dtype=np.int8)
+		ds = xr.Dataset(
+			{
+				"spectrogram": (("session", "channel", "freq", "time"), spectrogram_padded),
+				"freqs": (("session", "freq"), freqs_padded),
+				"times": (("session", "time"), times_padded),
+				"meas_date_iso": (("session",), meas_date_iso_arr),
+				"meas_date_sec": (("session",), meas_date_sec_arr),
+				"sfreq_hz": (("session",), sfreq_hz_arr),
+				"duration_s": (("session",), duration_s_arr),
+				"n_channels": (("session",), n_channels_arr),
+				"xdf_filename": (("session",), xdf_filename_arr),
+				"channel_names": (("session", "channel"), channel_names_padded),
+				"eeg_raw_data": (("session", "eeg_channel", "eeg_sample"), eeg_raw_data_padded),
+				"eeg_raw_times_sec": (("session", "eeg_sample"), eeg_raw_times_padded),
+				"eeg_channel_names": (("session", "eeg_channel"), eeg_channel_names_padded),
+				"has_motion": (("session",), has_motion_arr),
+				"motion_raw_data": (("session", "motion_channel", "motion_sample"), motion_raw_data_padded),
+				"motion_raw_times_sec": (("session", "motion_sample"), motion_raw_times_padded),
+				"motion_channel_names": (("session", "motion_channel"), motion_channel_names_padded),
+				"alignment_method": (("session",), alignment_method_arr),
+				"spectrogram_start_time_sec": (("session",), spectrogram_start_time_sec_arr),
+				"spectrogram_end_time_sec": (("session",), spectrogram_end_time_sec_arr),
+				"eeg_time_origin_meas_date_sec": (("session",), eeg_time_origin_meas_date_sec_arr),
+				"motion_time_origin_meas_date_sec": (("session",), motion_time_origin_meas_date_sec_arr),
+				"eeg_has_nearest_map": (("session",), eeg_has_nearest_map_arr),
+				"motion_has_nearest_map": (("session",), motion_has_nearest_map_arr),
+				"eeg_nearest_spectrogram_bin_idx": (("session", "eeg_sample"), eeg_nearest_idx_padded),
+				"motion_nearest_spectrogram_bin_idx": (("session", "motion_sample"), motion_nearest_idx_padded),
+			},
+			coords={"session": np.arange(n_sessions), "channel": np.arange(n_channels), "freq": np.arange(n_freq), "time": np.arange(n_time), "eeg_channel": np.arange(n_eeg_channels), "eeg_sample": np.arange(n_eeg_samples), "motion_channel": np.arange(n_motion_channels), "motion_sample": np.arange(n_motion_samples)},
+			attrs={"format_version": "1.1", "freq_min": float(freq_min), "freq_max": float(freq_max), "n_sessions": n_sessions},
+		)
+		ds.to_netcdf(output_path)
 		print(f"Exported spectrograms to NetCDF: {output_path.as_posix()}")
 		return output_path
-	n_sessions = len(session_rows)
-	n_channels = max(r["spectrogram"].shape[0] for r in session_rows)
-	n_freq = max(r["freqs"].size for r in session_rows)
-	n_time = max(r["times"].size for r in session_rows)
-	n_eeg_channels = max((r["eeg"]["raw_data"].shape[0] for r in session_rows), default=0)
-	n_eeg_samples = max((r["eeg"]["raw_times_sec"].size for r in session_rows), default=0)
-	n_motion_channels = max((r["motion"]["raw_data"].shape[0] for r in session_rows), default=0)
-	n_motion_samples = max((r["motion"]["raw_times_sec"].size for r in session_rows), default=0)
-	spectrogram_padded = np.full((n_sessions, n_channels, n_freq, n_time), np.nan, dtype=np.float64)
-	freqs_padded = np.full((n_sessions, n_freq), np.nan, dtype=np.float64)
-	times_padded = np.full((n_sessions, n_time), np.nan, dtype=np.float64)
-	eeg_raw_data_padded = np.full((n_sessions, n_eeg_channels, n_eeg_samples), np.nan, dtype=np.float64)
-	eeg_raw_times_padded = np.full((n_sessions, n_eeg_samples), np.nan, dtype=np.float64)
-	motion_raw_data_padded = np.full((n_sessions, n_motion_channels, n_motion_samples), np.nan, dtype=np.float64)
-	motion_raw_times_padded = np.full((n_sessions, n_motion_samples), np.nan, dtype=np.float64)
-	eeg_nearest_idx_padded = np.full((n_sessions, n_eeg_samples), -1, dtype=np.int64)
-	motion_nearest_idx_padded = np.full((n_sessions, n_motion_samples), -1, dtype=np.int64)
-	channel_names_padded = np.full((n_sessions, n_channels), "", dtype=object)
-	eeg_channel_names_padded = np.full((n_sessions, n_eeg_channels), "", dtype=object)
-	motion_channel_names_padded = np.full((n_sessions, n_motion_channels), "", dtype=object)
-	for i, r in enumerate(session_rows):
-		nc, nf, nt = r["spectrogram"].shape
-		spectrogram_padded[i, :nc, :nf, :nt] = r["spectrogram"]
-		freqs_padded[i, :r["freqs"].size] = r["freqs"]
-		times_padded[i, :r["times"].size] = r["times"]
-		eeg_data = r["eeg"]["raw_data"]
-		eeg_times = r["eeg"]["raw_times_sec"]
-		if eeg_data.ndim == 2 and eeg_data.size > 0:
-			eeg_raw_data_padded[i, :eeg_data.shape[0], :eeg_data.shape[1]] = eeg_data
-		if eeg_times.size > 0:
-			eeg_raw_times_padded[i, :eeg_times.size] = eeg_times
-		eeg_idx = r["alignment"]["eeg_nearest_spectrogram_bin_idx"]
-		if r["alignment"]["eeg_has_nearest_map"] and eeg_idx.size > 0:
-			eeg_nearest_idx_padded[i, :eeg_idx.size] = eeg_idx
-		motion_data = r["motion"]["raw_data"]
-		motion_times = r["motion"]["raw_times_sec"]
-		if motion_data.ndim == 2 and motion_data.size > 0:
-			motion_raw_data_padded[i, :motion_data.shape[0], :motion_data.shape[1]] = motion_data
-		if motion_times.size > 0:
-			motion_raw_times_padded[i, :motion_times.size] = motion_times
-		motion_idx = r["alignment"]["motion_nearest_spectrogram_bin_idx"]
-		if r["alignment"]["motion_has_nearest_map"] and motion_idx.size > 0:
-			motion_nearest_idx_padded[i, :motion_idx.size] = motion_idx
-		for j, name in enumerate(r["channel_names"]):
-			if j < n_channels:
-				channel_names_padded[i, j] = name
-		for j, name in enumerate(r["eeg"]["channel_names"]):
-			if j < n_eeg_channels:
-				eeg_channel_names_padded[i, j] = name
-		for j, name in enumerate(r["motion"]["channel_names"]):
-			if j < n_motion_channels:
-				motion_channel_names_padded[i, j] = name
-	meas_date_iso_arr = np.array([r["meas_date_iso"] for r in session_rows], dtype=object)
-	meas_date_sec_arr = np.array([r["meas_date_sec"] for r in session_rows], dtype=np.float64)
-	sfreq_hz_arr = np.array([r["sfreq_hz"] for r in session_rows], dtype=np.float64)
-	duration_s_arr = np.array([r["duration_s"] for r in session_rows], dtype=np.float64)
-	n_channels_arr = np.array([r["n_channels"] for r in session_rows], dtype=np.int64)
-	xdf_filename_arr = np.array([r["xdf_filename"] for r in session_rows], dtype=object)
-	has_motion_arr = np.array([1 if r["motion"]["has_data"] else 0 for r in session_rows], dtype=np.int8)
-	alignment_method_arr = np.array([r["alignment"]["alignment_method"] for r in session_rows], dtype=object)
-	spectrogram_start_time_sec_arr = np.array([r["alignment"]["spectrogram_start_time_sec"] for r in session_rows], dtype=np.float64)
-	spectrogram_end_time_sec_arr = np.array([r["alignment"]["spectrogram_end_time_sec"] for r in session_rows], dtype=np.float64)
-	eeg_time_origin_meas_date_sec_arr = np.array([r["alignment"]["eeg_time_origin_meas_date_sec"] for r in session_rows], dtype=np.float64)
-	motion_time_origin_meas_date_sec_arr = np.array([r["alignment"]["motion_time_origin_meas_date_sec"] for r in session_rows], dtype=np.float64)
-	eeg_has_nearest_map_arr = np.array([1 if r["alignment"]["eeg_has_nearest_map"] else 0 for r in session_rows], dtype=np.int8)
-	motion_has_nearest_map_arr = np.array([1 if r["alignment"]["motion_has_nearest_map"] else 0 for r in session_rows], dtype=np.int8)
-	ds = xr.Dataset(
-		{
-			"spectrogram": (("session", "channel", "freq", "time"), spectrogram_padded),
-			"freqs": (("session", "freq"), freqs_padded),
-			"times": (("session", "time"), times_padded),
-			"meas_date_iso": (("session",), meas_date_iso_arr),
-			"meas_date_sec": (("session",), meas_date_sec_arr),
-			"sfreq_hz": (("session",), sfreq_hz_arr),
-			"duration_s": (("session",), duration_s_arr),
-			"n_channels": (("session",), n_channels_arr),
-			"xdf_filename": (("session",), xdf_filename_arr),
-			"channel_names": (("session", "channel"), channel_names_padded),
-			"eeg_raw_data": (("session", "eeg_channel", "eeg_sample"), eeg_raw_data_padded),
-			"eeg_raw_times_sec": (("session", "eeg_sample"), eeg_raw_times_padded),
-			"eeg_channel_names": (("session", "eeg_channel"), eeg_channel_names_padded),
-			"has_motion": (("session",), has_motion_arr),
-			"motion_raw_data": (("session", "motion_channel", "motion_sample"), motion_raw_data_padded),
-			"motion_raw_times_sec": (("session", "motion_sample"), motion_raw_times_padded),
-			"motion_channel_names": (("session", "motion_channel"), motion_channel_names_padded),
-			"alignment_method": (("session",), alignment_method_arr),
-			"spectrogram_start_time_sec": (("session",), spectrogram_start_time_sec_arr),
-			"spectrogram_end_time_sec": (("session",), spectrogram_end_time_sec_arr),
-			"eeg_time_origin_meas_date_sec": (("session",), eeg_time_origin_meas_date_sec_arr),
-			"motion_time_origin_meas_date_sec": (("session",), motion_time_origin_meas_date_sec_arr),
-			"eeg_has_nearest_map": (("session",), eeg_has_nearest_map_arr),
-			"motion_has_nearest_map": (("session",), motion_has_nearest_map_arr),
-			"eeg_nearest_spectrogram_bin_idx": (("session", "eeg_sample"), eeg_nearest_idx_padded),
-			"motion_nearest_spectrogram_bin_idx": (("session", "motion_sample"), motion_nearest_idx_padded),
-		},
-		coords={"session": np.arange(n_sessions), "channel": np.arange(n_channels), "freq": np.arange(n_freq), "time": np.arange(n_time), "eeg_channel": np.arange(n_eeg_channels), "eeg_sample": np.arange(n_eeg_samples), "motion_channel": np.arange(n_motion_channels), "motion_sample": np.arange(n_motion_samples)},
-		attrs={"format_version": "1.1", "freq_min": float(freq_min), "freq_max": float(freq_max), "n_sessions": n_sessions},
-	)
-	ds.to_netcdf(output_path)
-	print(f"Exported spectrograms to NetCDF: {output_path.as_posix()}")
-	return output_path
 
 
-def export_spectrograms_parquet(active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0, stream_infos_df: Optional[pd.DataFrame] = None, active_only_out_motion_raws: Optional[List[Optional[mne.io.BaseRaw]]] = None) -> Path:
-	"""
-	Export spectrograms, timestamps, and recording metadata to a single Parquet file for interchange and analytics.
+	@classmethod
+	def export_spectrograms_parquet(cls, active_only_out_eeg_raws, results, output_path: Path, freq_min: float = 1.0, freq_max: float = 40.0, stream_infos_df: Optional[pd.DataFrame] = None, active_only_out_motion_raws: Optional[List[Optional[mne.io.BaseRaw]]] = None) -> Path:
+		"""
+		Export spectrograms, timestamps, and recording metadata to a single Parquet file for interchange and analytics.
 
-	One row per session with scalar metadata and list/array columns for channel_names, freqs, times, and
-	spectrogram (3D as list of list of list). Readable with pandas/PyArrow in Python, R, and other tools.
-	"""
-	output_path = Path(output_path)
-	output_path.parent.mkdir(parents=True, exist_ok=True)
-	dataset_to_filename: Dict[int, str] = {}
-	if stream_infos_df is not None:
-		try:
-			tmp_df = stream_infos_df.reset_index()
-			if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
-				for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
-					dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
-		except Exception as e:
-			print(f"  WARN: export_spectrograms_parquet failed to derive dataset -> filename mapping: {e}")
-	rows: List[Dict[str, Any]] = []
-	for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
-		try:
-			if a_result is None or "spectogram" not in a_result:
-				continue
-			meas_date = a_raw.info.get("meas_date")
-			if meas_date is None:
-				meas_date_sec = float("nan")
-				meas_date_iso = ""
-			else:
-				if getattr(meas_date, "tzinfo", None) is None:
-					meas_date = meas_date.replace(tzinfo=timezone.utc)
-				meas_date_sec = meas_date.timestamp()
-				meas_date_iso = meas_date.isoformat()
-			spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
-			channel_names = list(spectogram_result_dict.keys())
-			f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
-			freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
-			freqs = np.asarray(f0)[freq_mask]
-			times = np.asarray(t0)
-			Sxx_list = []
-			for ch_name in channel_names:
-				f, t, Sxx = spectogram_result_dict[ch_name]
-				Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
-			Sxx_stack = np.stack(Sxx_list, axis=0)
-			eeg_payload = _extract_raw_export_payload(a_raw)
-			motion_raw = active_only_out_motion_raws[idx] if (active_only_out_motion_raws is not None and idx < len(active_only_out_motion_raws)) else None
-			motion_payload = _extract_raw_export_payload(motion_raw)
-			alignment_payload = _build_alignment_export_payload(times, eeg_payload, motion_payload)
+		One row per session with scalar metadata and list/array columns for channel_names, freqs, times, and
+		spectrogram (3D as list of list of list). Readable with pandas/PyArrow in Python, R, and other tools.
+		"""
+		output_path = Path(output_path)
+		output_path.parent.mkdir(parents=True, exist_ok=True)
+		dataset_to_filename: Dict[int, str] = {}
+		if stream_infos_df is not None:
 			try:
-				duration_s = float(a_raw.times[-1] - a_raw.times[0]) if a_raw.times.size > 0 else float("nan")
-			except Exception:
-				duration_s = float("nan")
-			sfreq_hz = float(a_raw.info.get("sfreq", float("nan")))
-			xdf_filename = dataset_to_filename.get(idx)
-			spectrogram_nested = Sxx_stack.tolist()
-			rows.append({"session_idx": idx, "meas_date_iso": meas_date_iso, "meas_date_sec": meas_date_sec, "xdf_filename": str(xdf_filename) if xdf_filename is not None else "", "sfreq_hz": sfreq_hz, "duration_s": duration_s, "n_channels": len(channel_names), "channel_names": channel_names, "freqs": freqs.tolist(), "times": times.tolist(), "spectrogram": spectrogram_nested, "eeg_raw_data": eeg_payload["raw_data"].tolist(), "eeg_raw_times_sec": eeg_payload["raw_times_sec"].tolist(), "eeg_channel_names": eeg_payload["channel_names"], "has_motion": bool(motion_payload["has_data"]), "motion_raw_data": motion_payload["raw_data"].tolist(), "motion_raw_times_sec": motion_payload["raw_times_sec"].tolist(), "motion_channel_names": motion_payload["channel_names"], "alignment_method": alignment_payload["alignment_method"], "spectrogram_times_sec": alignment_payload["spectrogram_times_sec"].tolist(), "spectrogram_start_time_sec": float(alignment_payload["spectrogram_start_time_sec"]), "spectrogram_end_time_sec": float(alignment_payload["spectrogram_end_time_sec"]), "eeg_time_origin_meas_date_sec": float(alignment_payload["eeg_time_origin_meas_date_sec"]), "motion_time_origin_meas_date_sec": float(alignment_payload["motion_time_origin_meas_date_sec"]), "eeg_has_nearest_map": bool(alignment_payload["eeg_has_nearest_map"]), "motion_has_nearest_map": bool(alignment_payload["motion_has_nearest_map"]), "eeg_nearest_spectrogram_bin_idx": alignment_payload["eeg_nearest_spectrogram_bin_idx"].tolist(), "motion_nearest_spectrogram_bin_idx": alignment_payload["motion_nearest_spectrogram_bin_idx"].tolist()})
-		except Exception as e:
-			print(f"  WARN: export_spectrograms_parquet skipped session {idx}: {e}")
-			continue
-	df = pd.DataFrame.from_records(rows)
-	df.to_parquet(output_path, index=False)
-	print(f"Exported spectrograms to Parquet: {output_path.as_posix()}")
-	return output_path
+				tmp_df = stream_infos_df.reset_index()
+				if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
+					for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
+						dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
+			except Exception as e:
+				print(f"  WARN: export_spectrograms_parquet failed to derive dataset -> filename mapping: {e}")
+		rows: List[Dict[str, Any]] = []
+		for idx, (a_raw, a_result) in enumerate(zip(active_only_out_eeg_raws, results)):
+			try:
+				if a_result is None or "spectogram" not in a_result:
+					continue
+				meas_date = a_raw.info.get("meas_date")
+				if meas_date is None:
+					meas_date_sec = float("nan")
+					meas_date_iso = ""
+				else:
+					if getattr(meas_date, "tzinfo", None) is None:
+						meas_date = meas_date.replace(tzinfo=timezone.utc)
+					meas_date_sec = meas_date.timestamp()
+					meas_date_iso = meas_date.isoformat()
+				spectogram_result_dict = a_result["spectogram"]["spectogram_result_dict"]
+				channel_names = list(spectogram_result_dict.keys())
+				f0, t0, Sxx0 = next(iter(spectogram_result_dict.values()))
+				freq_mask = (f0 >= freq_min) & (f0 <= freq_max)
+				freqs = np.asarray(f0)[freq_mask]
+				times = np.asarray(t0)
+				Sxx_list = []
+				for ch_name in channel_names:
+					f, t, Sxx = spectogram_result_dict[ch_name]
+					Sxx_list.append(np.asarray(Sxx)[freq_mask, :])
+				Sxx_stack = np.stack(Sxx_list, axis=0)
+				eeg_payload = cls._extract_raw_export_payload(a_raw)
+				motion_raw = active_only_out_motion_raws[idx] if (active_only_out_motion_raws is not None and idx < len(active_only_out_motion_raws)) else None
+				motion_payload = cls._extract_raw_export_payload(motion_raw)
+				alignment_payload = cls._build_alignment_export_payload(times, eeg_payload, motion_payload)
+				try:
+					duration_s = float(a_raw.times[-1] - a_raw.times[0]) if a_raw.times.size > 0 else float("nan")
+				except Exception:
+					duration_s = float("nan")
+				sfreq_hz = float(a_raw.info.get("sfreq", float("nan")))
+				xdf_filename = dataset_to_filename.get(idx)
+				spectrogram_nested = Sxx_stack.tolist()
+				rows.append({"session_idx": idx, "meas_date_iso": meas_date_iso, "meas_date_sec": meas_date_sec, "xdf_filename": str(xdf_filename) if xdf_filename is not None else "", "sfreq_hz": sfreq_hz, "duration_s": duration_s, "n_channels": len(channel_names), "channel_names": channel_names, "freqs": freqs.tolist(), "times": times.tolist(), "spectrogram": spectrogram_nested, "eeg_raw_data": eeg_payload["raw_data"].tolist(), "eeg_raw_times_sec": eeg_payload["raw_times_sec"].tolist(), "eeg_channel_names": eeg_payload["channel_names"], "has_motion": bool(motion_payload["has_data"]), "motion_raw_data": motion_payload["raw_data"].tolist(), "motion_raw_times_sec": motion_payload["raw_times_sec"].tolist(), "motion_channel_names": motion_payload["channel_names"], "alignment_method": alignment_payload["alignment_method"], "spectrogram_times_sec": alignment_payload["spectrogram_times_sec"].tolist(), "spectrogram_start_time_sec": float(alignment_payload["spectrogram_start_time_sec"]), "spectrogram_end_time_sec": float(alignment_payload["spectrogram_end_time_sec"]), "eeg_time_origin_meas_date_sec": float(alignment_payload["eeg_time_origin_meas_date_sec"]), "motion_time_origin_meas_date_sec": float(alignment_payload["motion_time_origin_meas_date_sec"]), "eeg_has_nearest_map": bool(alignment_payload["eeg_has_nearest_map"]), "motion_has_nearest_map": bool(alignment_payload["motion_has_nearest_map"]), "eeg_nearest_spectrogram_bin_idx": alignment_payload["eeg_nearest_spectrogram_bin_idx"].tolist(), "motion_nearest_spectrogram_bin_idx": alignment_payload["motion_nearest_spectrogram_bin_idx"].tolist()})
+			except Exception as e:
+				print(f"  WARN: export_spectrograms_parquet skipped session {idx}: {e}")
+				continue
+		df = pd.DataFrame.from_records(rows)
+		df.to_parquet(output_path, index=False)
+		print(f"Exported spectrograms to Parquet: {output_path.as_posix()}")
+		return output_path
 
 
 # Configuration
@@ -1100,15 +1108,7 @@ lab_recorder_output_path = Path("E:/Dropbox (Personal)/Databases/UnparsedData/La
 assert lab_recorder_output_path.exists(), f"'{lab_recorder_output_path.as_posix()}' does not exist!"
 
 
-def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5,
-		should_write_final_merged_eeg_fif: bool = True,
-		included_xdf_file_names: Optional[List]=None, # Include all
-		should_load_preprocessed: bool = False,
-		use_computation_cache: bool = True,
-		cache_root: Optional[Path] = None,
-		use_mtime_in_cache_key: bool = False,
-		absolute_max_workers: int = 2,
-	):
+def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5, should_write_final_merged_eeg_fif: bool = True, included_xdf_file_names: Optional[List]=None, should_load_preprocessed: bool = False, use_computation_cache: bool = True, cache_root: Optional[Path] = None, use_mtime_in_cache_key: bool = False, absolute_max_workers: int = 2):
 	""" Processes a single .xdf file independently to produce all exports
 
 		from PhoOfflineEEGAnalysis.examples_jupyter.main_analyze_run import process_XDFs_main
@@ -1519,7 +1519,7 @@ if __name__ == "__main__":
 		print('\nExporting interactive HTML spectrograms...')
 		html_output_folder = outputs_root_folder.joinpath('spectrograms_html')
 		print(f'\texporting to "{html_output_folder}"...')
-		html_files = export_session_spectrograms_html(
+		html_files = SpectogramPlottingHelper.export_session_spectrograms_html(
 			active_only_out_eeg_raws=active_only_out_eeg_raws,
 			results=results,
 			output_folder=html_output_folder,
@@ -1537,32 +1537,32 @@ if __name__ == "__main__":
 	spectrograms_nc_path = None
 	spectrograms_parquet_path = None
 	try:
-		spectrograms_npz_paths = export_spectrograms_for_rerun(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_dir=spectrograms_npz_dir, freq_min=1.0, freq_max=40.0, filename_prefix=export_date_prefix, active_only_out_motion_raws=active_only_out_motion_raws)
+		spectrograms_npz_paths = SpectogramPlottingHelper.export_spectrograms_for_rerun(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_dir=spectrograms_npz_dir, freq_min=1.0, freq_max=40.0, filename_prefix=export_date_prefix, active_only_out_motion_raws=active_only_out_motion_raws)
 	except Exception as e:
 		print(f"  Export failed (Rerun .npz): {e}")
 		spectrograms_npz_paths = None
 	try:
 		spectrograms_h5_path = outputs_root_folder.joinpath(f"{export_date_prefix}spectrograms_export.h5")
-		export_spectrograms_hdf5(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_h5_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df, active_only_out_motion_raws=active_only_out_motion_raws)
+		SpectogramPlottingHelper.export_spectrograms_hdf5(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_h5_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df, active_only_out_motion_raws=active_only_out_motion_raws)
 	except Exception as e:
 		print(f"  Export failed (HDF5): {e}")
 		spectrograms_h5_path = None
 	try:
 		spectrograms_nc_path = outputs_root_folder.joinpath(f"{export_date_prefix}spectrograms_export.nc")
-		export_spectrograms_netcdf(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_nc_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df, active_only_out_motion_raws=active_only_out_motion_raws)
+		SpectogramPlottingHelper.export_spectrograms_netcdf(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_nc_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df, active_only_out_motion_raws=active_only_out_motion_raws)
 	except Exception as e:
 		print(f"  Export failed (NetCDF): {e}")
 		spectrograms_nc_path = None
 	try:
 		spectrograms_parquet_path = outputs_root_folder.joinpath(f"{export_date_prefix}spectrograms_export.parquet")
-		export_spectrograms_parquet(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_parquet_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df, active_only_out_motion_raws=active_only_out_motion_raws)
+		SpectogramPlottingHelper.export_spectrograms_parquet(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, output_path=spectrograms_parquet_path, freq_min=1.0, freq_max=40.0, stream_infos_df=_out_xdf_stream_infos_df, active_only_out_motion_raws=active_only_out_motion_raws)
 	except Exception as e:
 		print(f"  Export failed (Parquet): {e}")
 		spectrograms_parquet_path = None
 
 	# # Export combined HTML view
 	# combined_html_path = outputs_root_folder.joinpath(f"2025-11-18_all_spectrograms_{len(active_only_out_eeg_raws)}_sessions.html")
-	# combined_html_file = export_combined_spectrograms_html(
+	# combined_html_file = SpectogramPlottingHelper.export_combined_spectrograms_html(
 	#     active_only_out_eeg_raws=active_only_out_eeg_raws,
 	#     results=results,
 	#     output_path=combined_html_path,

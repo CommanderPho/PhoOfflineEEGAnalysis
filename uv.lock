@@ -5494,7 +5494,7 @@ wheels = [
 
 [[package]]
 name = "phoofflineeeganalysis"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "." }
 dependencies = [
     { name = "autoreject" },
@@ -5552,6 +5552,7 @@ dependencies = [
     { name = "pyedflib" },
     { name = "pyinstaller" },
     { name = "pylsl" },
+    { name = "pyprep" },
     { name = "pyqt5" },
     { name = "pyqt5-qt5" },
     { name = "pyqt5-sip" },
@@ -5644,6 +5645,7 @@ requires-dist = [
     { name = "pyedflib", specifier = ">=0.1.42" },
     { name = "pyinstaller", specifier = ">=6.14.2" },
     { name = "pylsl", specifier = ">=1.16.2" },
+    { name = "pyprep", specifier = ">=0.6.0" },
     { name = "pyqt5", specifier = "==5.15.11" },
     { name = "pyqt5-qt5", specifier = "==5.15.2" },
     { name = "pyqt5-sip", specifier = "==12.17.0" },
@@ -5698,7 +5700,7 @@ provides-extras = ["video"]
 
 [[package]]
 name = "phopymnehelper"
-version = "0.2.1"
+version = "0.2.2"
 source = { editable = "../PhoPyMNEHelper" }
 dependencies = [
     { name = "gmsh" },
@@ -5708,7 +5710,9 @@ dependencies = [
     { name = "nptyping" },
     { name = "numpy" },
     { name = "pandas" },
+    { name = "pyprep" },
     { name = "pyvistaqt" },
+    { name = "scikit-learn" },
     { name = "trame" },
     { name = "xarray", extra = ["complete"] },
 ]
@@ -5722,7 +5726,9 @@ requires-dist = [
     { name = "nptyping", specifier = ">=2.5.0" },
     { name = "numpy", specifier = "~=1.20" },
     { name = "pandas", specifier = ">=1.5.3,<3.0.0" },
+    { name = "pyprep", specifier = ">=0.6.0" },
     { name = "pyvistaqt", specifier = ">=0.11.3" },
+    { name = "scikit-learn", specifier = ">=1.7.2" },
     { name = "trame", specifier = ">=3.12.0" },
     { name = "xarray", extras = ["complete"], specifier = ">=2024.3.0" },
 ]
@@ -6616,6 +6622,21 @@ viz = [
     { name = "silx", specifier = ">=1.1.2,<2" },
     { name = "vedo", git = "https://github.com/CommanderPho/vedo.git?rev=feature%2Fmerge-upstream" },
     { name = "vtk", specifier = ">=9.2.4,<10" },
+]
+
+[[package]]
+name = "pyprep"
+version = "0.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "mne" },
+    { name = "numpy" },
+    { name = "psutil" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0c/7c/87dbc237fff8215312af8f708d94702abc73e48bc14a60f17a651e259997/pyprep-0.6.0.tar.gz", hash = "sha256:768a757ea52bbcb071d39139d7a19862910df92f3ac087abf9ec19d17d371de8", size = 33828, upload-time = "2026-02-26T14:16:12.884Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a2/c5/0e07b6e30eff05109a83366d7f15bbe260c3a07b7e5bb2c91245ec80402a/pyprep-0.6.0-py3-none-any.whl", hash = "sha256:8b77c81ec843492992dfd80c0de89e8132ec1c02a12b58d32abd4142e60cbbbd", size = 37720, upload-time = "2026-02-26T14:16:11.362Z" },
 ]
 
 [[package]]

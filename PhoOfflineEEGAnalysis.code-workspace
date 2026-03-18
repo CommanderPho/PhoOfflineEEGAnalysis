@@ -4,19 +4,16 @@
 			"path": "."
 		},
 		{
-			"path": "../PhoPyLSLhelper"
+			"path": "../pyPhoTimeline"
 		},
 		{
 			"path": "../PhoPyMNEHelper"
 		},
 		{
-			"path": "../pyPhoTimeline"
+			"path": "../PhoPyLSLhelper"
 		},
 		{
-			"path": "../phoRerunTesting"
-		},
-		{
-			"path": "../python_xdf_streamer"
+			"path": "../mne-python"
 		}
 	],
 	"settings": {
@@ -34,30 +31,6 @@
 			"sideBarSectionHeader.border": "#cecece"
 		},
 		"git.ignoreLimitWarning": true,
-		// "python.languageServer": "None",
-		"problems.visibility": false,
-		"python.analysis.logLevel": "Trace",
-		"files.readonlyInclude": {
-			"C:\\Users\\pho\\repos\\EmotivEpoc\\ACTIVE_DEV\\pyPhoPlaceCellAnalysis": true,
-			"H:\\TEMP\\Spike3DEnv_ExploreUpgrade\\Spike3DWorkEnv\\NeuroPy": true,
-			"H:\\TEMP\\Spike3DEnv_ExploreUpgrade\\Spike3DWorkEnv\\pyPhoCoreHelpers": true
-		},
-		"extensions.closeExtensionDetailsOnViewChange": true,
-		"python-envs.pythonProjects": [
-			{
-				"path": "src/phopymnehelper",
-				"envManager": "ms-python.python:venv",
-				"packageManager": "ms-python.python:pip",
-				"workspace": "PhoPyMNEHelper"
-			}
-		],
-		"cursorpyright.analysis.logLevel": "Trace",
-	},
-	"extensions": {
-		"recommendations": [
-			"specstory.specstory-vscode",
-			"ast-grep.ast-grep-vscode",
-			"astral-sh.ty"
-		]
+		"python.languageServer": "None"
 	}
 }
