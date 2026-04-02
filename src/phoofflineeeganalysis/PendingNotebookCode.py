@@ -7,11 +7,12 @@ import os
 
 import mne
 from phopymnehelper.EEG_data import EEGComputations
+from phopymnehelper.exporters.ZarrSerialization_Exporter import ZarrSerialization
 from matplotlib.backends.backend_pdf import PdfPages
 from datetime import datetime, timezone, timedelta
 import matplotlib.pyplot as plt
 
-import autoreject # apply_autoreject_filter
+from phopymnehelper.exporters.HDF5_Exporter import save_all_to_HDF5
 
 
 plt.rcParams["axes.titlesize"] = 8
@@ -299,61 +300,6 @@ def plot_scrollable_spectogram(ds_disk, channels_to_select=None, fig_export_path
 
 
 
-# include = []
-
-
-
-def apply_autoreject_filter(a_raw, epoch_fixed_duration=3, should_plot: bool = False):
-    """ computes the bad epochs via the autoreject package, using global/local amplitude thresholds determined dynamically
-
-    Usage:
-        from phoofflineeeganalysis.PendingNotebookCode import apply_autoreject_filter
-
-        epochs_cleaned, (epochs, reject_log), ica = apply_autoreject_filter(a_raw, epoch_fixed_duration=3)
-        epochs
-        epochs_cleaned
-
-
-    """
-    a_raw.copy().filter(l_freq=1, h_freq=None)
-    epochs = mne.make_fixed_length_epochs(a_raw, duration=epoch_fixed_duration, preload=True)
-
-    # plot the data
-    # epochs.average().detrend().plot_joint()
-
-
-    # picks = mne.pick_types(a_raw.info, meg=True, eeg=True, stim=False,
-    #                        eog=True, include=include, exclude='bads')
-    # epochs = mne.Epochs(a_raw, events, event_id, tmin, tmax,
-    #                     picks=picks, baseline=(None, 0), preload=True,
-    #                     reject=None, verbose=False, detrend=1)
-
-    ar = autoreject.AutoReject(n_interpolate=[1, 2, 3], random_state=1337, n_jobs=1, verbose=True)
-    ar.fit(epochs[:20])  # fit on a few epochs to save time
-    epochs_cleaned, reject_log = ar.transform(epochs, return_log=True)
-
-    if should_plot:
-        epochs[reject_log.bad_epochs].plot(scalings=dict(eeg=100e-6))
-        reject_log.plot('horizontal')
-
-    # epochs[reject_log.bad_epochs].plot(scalings=dict(eeg=100e-6))
-
-    # compute ICA
-    ica = mne.preprocessing.ICA(random_state=1337)
-    ica.fit(epochs[~reject_log.bad_epochs])
-    exclude = [0,  # blinks
-            2  # saccades
-            ]
-    if should_plot:
-        ica.plot_components(exclude)
-    ica.exclude = exclude
-    if should_plot:
-        ica.plot_overlay(epochs.average(), exclude=ica.exclude)
-    ica.apply(epochs, exclude=ica.exclude)
-
-    return epochs_cleaned, (epochs, reject_log), ica
-
-
 def batch_compute_all_eeg_datasets(eeg_raws, limit_num_items: Optional[int]=None, max_workers: Optional[int]=None):
     """ Main batch computation function
 
@@ -518,192 +464,6 @@ def build_merged(active_only_out_eeg_raws, results, day_status_dict, only_includ
     return (combined_ds, combined_da)
 
 
-
-
-import xarray as xr
-import zarr
-import numcodecs
-
-# @function_attributes(short_name=None, tags=['serialization'], input_requires=[], output_provides=[], uses=[], used_by=[], creation_date='2025-10-01 16:58', related_items=[])
-class ZarrSerialization:
-    """ Exports to Zarr for XArrays
-
-    import xarray as xr
-    import zarr
-    import numcodecs
-    import numpy as np
-    from pathlib import Path
-    from typing import Union
-    from phoofflineeeganalysis.PendingNotebookCode import ZarrSerialization
-
-    cog_categorical_cats = ['cog_bad', 'cog_poor', 'cog_okay', 'cog_good', 'cog_great']
-
-    day_status_dict = {
-        '2025-09-19/01-54-39': 'cog_poor',
-        '2025-09-18/15-23-08': 'cog_poor',
-        '2025-09-22/21-35-47': 'cog_okay',
-        '2025-09-19/20-51-18': 'cog_good',
-        '2025-09-18/03-18-42': 'cog_great',
-        '2025-09-22/21-35-47': 'cog_bad',
-        '2025-09-21/08-55-41': 'cog_bad',
-    }
-
-
-    zarr_out_path = Path("2025-09-30_all_sessions.zarr")
-
-    zarr_out_path = ZarrSerialization.save_sessions_as_zarr(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, day_status_dict=day_status_dict, out_path=zarr_out_path)
-
-    ## Immediately re-load from file
-    all_data = ZarrSerialization.load_sessions_from_zarr(zarr_out_path, verbose=True)
-
-    """
-    @classmethod
-    def load_sessions_from_zarr(cls, zarr_path: Union[str, Path], verbose: bool = False) -> xr.Dataset:
-        zarr_path = Path(zarr_path)
-        if not zarr_path.exists():
-            raise FileNotFoundError(f"Zarr store not found at {zarr_path}")
-
-        store = zarr.DirectoryStore(zarr_path)
-        root = zarr.open(store, mode="r")
-        session_keys = list(root.group_keys())
-        if verbose:
-            print("zarr groups:", session_keys)
-        if not session_keys:
-            raise ValueError(f"No session groups found in the Zarr store at {zarr_path}")
-
-        da_list: List[xr.DataArray] = []
-        for key in session_keys:
-            try:
-                ds = xr.open_zarr(store, group=key, consolidated=True)
-            except Exception as e:
-                if verbose: print(f"skipping group {key}: open_zarr error: {e}")
-                continue
-
-            # choose the DataArray: prefer 'Sxx' but fall back to the first data_var
-            if "Sxx" in ds.data_vars:
-                da = ds["Sxx"]
-                picked_name = "Sxx"
-            elif len(ds.data_vars) == 1:
-                picked_name = list(ds.data_vars)[0]
-                da = ds[picked_name]
-                if verbose: print(f"group {key}: no 'Sxx' var, picked '{picked_name}'")
-            else:
-                if verbose: print(f"skipping group {key}: no Sxx and multiple data_vars: {list(ds.data_vars)}")
-                continue
-
-            # normalize name to 'Sxx' for consistency
-            if da.name != "Sxx":
-                da = da.rename("Sxx")
-
-            session_key = ds.attrs.get("session_key", key)
-            cognitive_status = da.attrs.get("cognitive_status", "unknown")
-
-            # Expand with session dim labeled by session_key
-            da = da.expand_dims({"session": [session_key]})
-
-            # Assign cognitive_status as a coordinate on session dim
-            da = da.assign_coords(cognitive_status=("session", [cognitive_status]))
-
-            da_list.append(da)
-
-        if not da_list:
-            raise ValueError("No sessions with Sxx (or fallback data-var) found in Zarr store")
-
-        combined = xr.concat(da_list, dim="session", join="outer")
-
-        ds_combined = combined.to_dataset(name="Sxx")
-
-        # session_key coord (same labels as session dim)
-        sess_labels = [str(x) for x in ds_combined["session"].values.tolist()]
-        ds_combined = ds_combined.assign_coords(session_key=("session", sess_labels))
-
-        # ensure cognitive_status exists as session coord
-        if "cognitive_status" not in ds_combined.coords:
-            cs_vals = [da.coords.get("cognitive_status").values[0] if "cognitive_status" in da.coords else "unknown" for da in da_list]
-            ds_combined = ds_combined.assign_coords(cognitive_status=("session", cs_vals))
-
-        return ds_combined
-
-
-    @classmethod
-    def save_sessions_as_zarr(cls, active_only_out_eeg_raws, results, day_status_dict, out_path="all_sessions.zarr"):
-        """ write out the result (spectogram) from each session in the `day_status_dict` to the out_path file
-
-        Usage:
-
-            cog_categorical_cats = ['cog_bad', 'cog_poor', 'cog_okay', 'cog_good', 'cog_great']
-
-            day_status_dict = {
-                '2025-09-19/01-54-39': 'cog_poor',
-                '2025-09-18/15-23-08': 'cog_poor',
-                '2025-09-22/21-35-47': 'cog_okay',
-                '2025-09-19/20-51-18': 'cog_good',
-                '2025-09-18/03-18-42': 'cog_great',
-                '2025-09-22/21-35-47': 'cog_bad',
-                '2025-09-21/08-55-41': 'cog_bad',
-            }
-
-
-            out_path = Path("2025-09-29_all_sessions.zarr")
-            out_path = save_sessions_as_zarr(active_only_out_eeg_raws=active_only_out_eeg_raws, results=results, day_status_dict=day_status_dict, out_path=out_path)
-
-        """
-        compressor = numcodecs.Blosc()
-        store = zarr.DirectoryStore(out_path)
-        num_sessions: int = len(active_only_out_eeg_raws)
-
-        for idx in np.arange(num_sessions):
-            a_raw = active_only_out_eeg_raws[idx]
-            a_meas_date = a_raw.info.get('meas_date')
-            a_raw_key = a_meas_date.strftime("%Y-%m-%d/%H-%M-%S")
-            a_status = day_status_dict.get(a_raw_key, None)
-            if not a_status:
-                continue
-
-            a_result = results[idx]
-            Sxx = a_result['spectogram']['Sxx']
-            Sxx = Sxx.assign_attrs(cognitive_status=a_status) # xarray.DataArray - channels: 14, freqs: 513, times: 1116
-
-            ds = Sxx.to_dataset(name='Sxx')
-            ds.attrs['session_key'] = a_raw_key
-
-            encoding = {v: {'compressor': compressor} for v in ds.data_vars}
-            ds.to_zarr(store, group=a_raw_key, mode='a', encoding=encoding)
-
-        zarr.consolidate_metadata(store)
-        return out_path
-
-
-
-def save_all_to_HDF5(_active_only_out_eeg_raw, _active_all_outputs_dict, hdf5_out_path: Path):
-    """
-        hdf5_out_path: Path = Path('E:/Dropbox (Personal)/Databases/AnalysisData/MNE_preprocessed/outputs').joinpath('2025-09-22_eegComputations.h5')
-    hdf5_out_path
-    """
-
-    for idx, (a_raw, a_raw_outputs) in enumerate(zip(_active_only_out_eeg_raw, _active_all_outputs_dict)):
-        # a_path: Path = Path(a_raw.filenames[0])
-        # basename: str = a_path.stem
-        # basename: str = a_raw.info.get('meas_date')
-        src_file_path: Path = Path(a_raw.info.get('description'))
-        basename: str = src_file_path.stem
-
-        print(f'basename: {basename}')
-
-        for an_output_key, an_output_dict in a_raw_outputs.items():
-            for an_output_subkey, an_output_value in an_output_dict.items():
-                final_data_key: str = '/'.join([basename, an_output_key, an_output_subkey])
-                print(f'\tfinal_data_key: "{final_data_key}"')
-                # all_WHISPER_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/WHISPER/df', append=True)
-
-        # spectogram_result_dict = a_raw_outputs['spectogram']['spectogram_result_dict']
-        # fs = a_raw_outputs['spectogram']['fs']
-
-        # for ch_idx, (a_ch, a_ch_spect_result_tuple) in enumerate(spectogram_result_dict.items()):
-        #     all_WHISPER_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/WHISPER/df', append=True)
-        #     all_pho_log_to_lsl_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/PHO_LOG_TO_LSL/df', append=True)
-
-        #     all_pho_log_to_lsl_df.drop(columns=['filepath']).to_hdf(hdf5_out_path, key='modalities/PHO_LOG_TO_LSL/df', append=True)
 
 
 def plot_session_spectogram(a_raw, a_raw_outputs, sync_to_mne_raw_fig = None):

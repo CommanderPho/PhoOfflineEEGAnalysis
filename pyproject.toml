@@ -70,13 +70,13 @@ dependencies = [
     "tsdownsample>=0.1.4.1",
     "holonote>=0.2.1",
     "pytz>=2025.2",
-    "phopylslhelper>=1.0.0",
+    "phopylslhelper[all,video]>=1.0.0",
     "nibabel>=5.3.2",
     "pyvistaqt>=0.11.3",
     "trame>=3.12.0",
     "meshio>=5.3.5",
     "gmsh>=4.15.0",
-    "opencv-python>=4.8.0",
+    "opencv-python>=4.5.0",
     "phopymnehelper",
     "py-pho-timeline",
     "deffcode>=0.2.6",
@@ -100,9 +100,9 @@ build-backend = "hatchling.build"
 # This will cause resolution failures on darwin, but may work on Windows
 # If you need to lock on Windows only, you may need to temporarily remove this source
 mne = { path = "../mne-python", editable = true }
-phopylslhelper = { path = "../PhoPyLSLhelper", editable = true }
 phopymnehelper = { path = "../PhoPyMNEHelper", editable = true }
 py-pho-timeline = { path = "../pyPhoTimeline", editable = true }
+phopylslhelper = { path = "../PhoPyLSLhelper", editable = true }
 
 [tool.pyrefly]
 project-includes = [

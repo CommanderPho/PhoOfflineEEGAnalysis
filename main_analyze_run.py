@@ -33,6 +33,8 @@ from phopymnehelper.MNE_helpers import (
 	up_convert_raw_objects, up_convert_raw_obj
 )
 from phopymnehelper.EEG_data import EEGComputations, EEGData
+from phopymnehelper.analysis.computations.cache import DiskComputationCache
+from phopymnehelper.analysis.computations.eeg_registry import run_eeg_graph_legacy_ordered, session_fingerprint_for_raw_or_path
 from phopymnehelper.SavedSessionsProcessor import SavedSessionsProcessor, DataModalityType
 from phopymnehelper.xdf_files import LabRecorderXDF, XDFDataStreamAccessor
 
@@ -1108,16 +1110,19 @@ lab_recorder_output_path = Path("E:/Dropbox (Personal)/Databases/UnparsedData/La
 assert lab_recorder_output_path.exists(), f"'{lab_recorder_output_path.as_posix()}' does not exist!"
 
 
-def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5, should_write_final_merged_eeg_fif: bool = True, included_xdf_file_names: Optional[List]=None, should_load_preprocessed: bool = False, use_computation_cache: bool = True, cache_root: Optional[Path] = None, use_mtime_in_cache_key: bool = False, absolute_max_workers: int = 2):
+def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5, should_write_final_merged_eeg_fif: bool = True, included_xdf_file_names: Optional[List]=None, should_load_preprocessed: bool = False, use_computation_cache: bool = True, cache_root: Optional[Path] = None, use_mtime_in_cache_key: bool = False, use_graph_computation_cache: bool = False, absolute_max_workers: int = 2):
 	""" Processes a single .xdf file independently to produce all exports
 
 		from PhoOfflineEEGAnalysis.examples_jupyter.main_analyze_run import process_XDFs_main
+
+		If *use_graph_computation_cache* is True (and *use_computation_cache* is True), EEG steps run via the phopymnehelper DAG executor with per-node disk cache under ``cache_root / "node_cache"``; the usual monolithic session pickle and lookup are unchanged.
 
 	"""
 	if cache_root is None:
 		cache_root = pickled_data_path / "computation_cache"
 	cache_root = Path(cache_root)
 	cache_mgr: Optional[ComputationCacheManager] = ComputationCacheManager(cache_root=cache_root) if use_computation_cache else None
+	disk_node_cache: Optional[DiskComputationCache] = DiskComputationCache(cache_root / "node_cache") if (use_computation_cache and use_graph_computation_cache) else None
 	run_all_params: Dict[str, Any] = {"mask_bad_annotated_times": False}
 	if cache_mgr is not None:
 		history_path = cache_mgr.history_path
@@ -1285,7 +1290,12 @@ def process_XDFs_main(n_most_recent_sessions_to_preprocess: Optional[int] = 5, s
 				meas_date = eeg_raw.info.get('meas_date', 'Unknown')
 				print(f"  Processing merged EEG dataset for file {an_xdf_file_idx+1}/{len(lab_recorder_xdf_files)} (meas_date: {meas_date})")
 				# Disable BAD_* annotation masking for spectrograms in this pipeline to reduce NaN gaps
-				result = EEGComputations.run_all(raw=eeg_raw, mask_bad_annotated_times=False)
+				if disk_node_cache is not None:
+					xdf_mtime_for_fp = a_xdf_file.stat().st_mtime
+					session_fp = session_fingerprint_for_raw_or_path(eeg_raw, path=a_xdf_file, mtime=xdf_mtime_for_fp if use_mtime_in_cache_key else None)
+					result = run_eeg_graph_legacy_ordered(raw=eeg_raw, session=session_fp, global_params=run_all_params, cache=disk_node_cache, use_cache=True, parallel=False)
+				else:
+					result = EEGComputations.run_all(raw=eeg_raw, mask_bad_annotated_times=False)
 				print(f"  Completed merged EEG dataset for file {an_xdf_file_idx+1}/{len(lab_recorder_xdf_files)} (meas_date: {meas_date})")
 			except Exception as e:
 				print(f"  ERROR processing merged EEG dataset for file {an_xdf_file_idx+1}: {e}")
