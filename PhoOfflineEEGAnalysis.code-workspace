@@ -31,6 +31,7 @@
 			"sideBarSectionHeader.border": "#cecece"
 		},
 		"git.ignoreLimitWarning": true,
-		"python.languageServer": "None"
+		"python.languageServer": "None",
+		"specstory.cloudSync.enabled": "never"
 	}
 }
