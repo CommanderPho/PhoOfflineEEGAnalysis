@@ -41,6 +41,14 @@ from phopymnehelper.xdf_files import LabRecorderXDF, XDFDataStreamAccessor
 COMPUTATION_HISTORY_COLUMNS = ["cache_key_hex", "xdf_path", "xdf_mtime", "params_json", "result_path", "fif_filename", "computed_at"]
 
 
+def _reset_stream_infos_index_for_groupby(stream_infos_df: pd.DataFrame) -> pd.DataFrame:
+	"""reset_index without clash when xdf_dataset_idx is both the index name and a column."""
+	sidf = stream_infos_df
+	if sidf.index.name == 'xdf_dataset_idx' and 'xdf_dataset_idx' in sidf.columns:
+		sidf = sidf.drop(columns=['xdf_dataset_idx'])
+	return sidf.reset_index()
+
+
 @define(slots=False)
 class ComputationCacheManager:
 	cache_root: Path = field(converter=Path)
@@ -156,7 +164,7 @@ def compute_session_summary_metrics(active_only_out_eeg_raws, results, stream_in
 	dataset_to_filename: Dict[int, str] = {}
 	if stream_infos_df is not None:
 		try:
-			tmp_df = stream_infos_df.reset_index()
+			tmp_df = _reset_stream_infos_index_for_groupby(stream_infos_df)
 			if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
 				for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
 					# Use the first filename for this dataset index
@@ -371,6 +379,11 @@ class SpectogramPlottingHelper:
 				fs = a_result['spectogram']['fs']
 				channel_bad_intervals = _get_channel_bad_intervals(a_raw, list(spectogram_result_dict.keys()))
 
+				def _spectrogram_style_hook(hv_plot, _element):
+					bokeh_root = hv_plot.handles.get('plot')
+					if bokeh_root is not None:
+						cls._style_spectrogram_bokeh_plots(bokeh_root)
+
 				# Create HoloViews plots for each channel
 				channel_plots = []
 
@@ -420,26 +433,14 @@ class SpectogramPlottingHelper:
 								rect_data.append((start_c, f_min, end_c, f_max))
 						if rect_data:
 							rects = hv.Rectangles(rect_data, kdims=['time', 'frequency', 'time', 'frequency']).opts(alpha=0.35, color='red', line_alpha=0)
-							channel_plots.append(img * rects)
+							channel_plots.append((img * rects).opts(hooks=[_spectrogram_style_hook]))
 						else:
-							channel_plots.append(img)
+							channel_plots.append(img.opts(hooks=[_spectrogram_style_hook]))
 					else:
-						channel_plots.append(img)
+						channel_plots.append(img.opts(hooks=[_spectrogram_style_hook]))
 
-				# Stack all channel plots vertically
-				layout = hv.Layout(channel_plots).cols(1)
-
-				def _spectrogram_style_hook(hv_plot, _element):
-					bokeh_root = hv_plot.handles.get('plot')
-					if bokeh_root is not None:
-						cls._style_spectrogram_bokeh_plots(bokeh_root)
-
-				# Add overall title and hook for title box + background/grid styling
-				layout = layout.opts(
-					title=session_title_display,
-					shared_axes=True,
-					hooks=[_spectrogram_style_hook]
-				)
+				# Stack all channel plots vertically (hooks on Layout are not supported in recent HoloViews)
+				layout = hv.Layout(channel_plots).cols(1).opts(title=session_title_display, shared_axes=True)
 
 				# Save to HTML
 				html_path = output_folder / f"{filename_prefix}spectrogram_{session_name}.html"
@@ -731,7 +732,7 @@ class SpectogramPlottingHelper:
 		dataset_to_filename: Dict[int, str] = {}
 		if stream_infos_df is not None:
 			try:
-				tmp_df = stream_infos_df.reset_index()
+				tmp_df = _reset_stream_infos_index_for_groupby(stream_infos_df)
 				if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
 					for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
 						dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
@@ -842,7 +843,7 @@ class SpectogramPlottingHelper:
 		dataset_to_filename: Dict[int, str] = {}
 		if stream_infos_df is not None:
 			try:
-				tmp_df = stream_infos_df.reset_index()
+				tmp_df = _reset_stream_infos_index_for_groupby(stream_infos_df)
 				if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
 					for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
 						dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
@@ -1009,7 +1010,7 @@ class SpectogramPlottingHelper:
 		dataset_to_filename: Dict[int, str] = {}
 		if stream_infos_df is not None:
 			try:
-				tmp_df = stream_infos_df.reset_index()
+				tmp_df = _reset_stream_infos_index_for_groupby(stream_infos_df)
 				if "xdf_dataset_idx" in tmp_df.columns and "xdf_filename" in tmp_df.columns:
 					for ds_idx, grp in tmp_df.groupby("xdf_dataset_idx"):
 						dataset_to_filename[int(ds_idx)] = str(grp["xdf_filename"].iloc[0])
